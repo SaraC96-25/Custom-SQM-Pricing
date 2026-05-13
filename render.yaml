@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: custom-sqm-pricing-wowstampa
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run render-build
+    startCommand: npm run render-start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: SCOPES
+        value: read_cart_transforms,write_cart_transforms,write_metaobject_definitions,read_products,write_products
+      - key: SHOPIFY_APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false

@@ -1,0 +1,950 @@
+import { useEffect, useMemo, useState } from "react";
+import type {
+  ActionFunctionArgs,
+  HeadersFunction,
+  LoaderFunctionArgs,
+} from "react-router";
+import { Form, useFetcher, useLoaderData } from "react-router";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { boundary } from "@shopify/shopify-app-react-router/server";
+import { authenticate } from "../shopify.server";
+
+type DiscountRange = {
+  min_m2: number;
+  max_m2: number | null;
+  discount_percent: number;
+  label?: string;
+};
+
+type VariantSummary = {
+  id: string;
+  title: string;
+  price: string;
+  quantityOption: string | null;
+};
+
+type ProductSummary = {
+  id: string;
+  title: string;
+  handle: string;
+  status: string;
+  enabled: boolean;
+  ranges: DiscountRange[];
+  variants: VariantSummary[];
+};
+
+type LoaderData = {
+  products: ProductSummary[];
+  selectedProduct: ProductSummary | null;
+  search: string;
+};
+
+type ActionData = {
+  ok: boolean;
+  errors?: string[];
+  savedProductId?: string;
+};
+
+const EMPTY_RANGE: DiscountRange = {
+  min_m2: 0,
+  max_m2: null,
+  discount_percent: 0,
+  label: "",
+};
+
+const PRODUCTS_QUERY = `#graphql
+  query CustomSqmPricingProducts($query: String) {
+    products(first: 50, query: $query, sortKey: TITLE) {
+      edges {
+        node {
+          id
+          title
+          handle
+          status
+          enabledMetafield: metafield(namespace: "custom", key: "sqm_pricing_enabled") {
+            value
+          }
+          rangesMetafield: metafield(namespace: "custom", key: "sqm_discount_ranges") {
+            value
+          }
+          variants(first: 100) {
+            edges {
+              node {
+                id
+                title
+                price
+                selectedOptions {
+                  name
+                  value
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const METAFIELDS_SET_MUTATION = `#graphql
+  mutation CustomSqmPricingSaveProduct($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields {
+        id
+        namespace
+        key
+        value
+      }
+      userErrors {
+        field
+        message
+        code
+      }
+    }
+  }
+`;
+
+function parseRanges(value: unknown): DiscountRange[] {
+  if (!value) return [];
+
+  let parsed = value;
+  for (let index = 0; index < 2 && typeof parsed === "string"; index += 1) {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((range) => normalizeRange(range))
+    .filter((range): range is DiscountRange => Boolean(range));
+}
+
+function normalizeRange(range: unknown): DiscountRange | null {
+  if (!range || typeof range !== "object") return null;
+
+  const source = range as Record<string, unknown>;
+  const min = toNumber(source.min_m2 ?? source.min);
+  const maxSource = source.max_m2 ?? source.max;
+  const max =
+    maxSource === "" || maxSource === null || typeof maxSource === "undefined"
+      ? null
+      : toNumber(maxSource);
+  const discount = toNumber(source.discount_percent ?? source.discount);
+  const label = String(source.label ?? "").trim();
+
+  if (min === null || discount === null) return null;
+
+  return {
+    min_m2: roundDecimal(Math.max(0, min)),
+    max_m2: max === null ? null : roundDecimal(Math.max(0, max)),
+    discount_percent: roundDecimal(Math.max(0, discount)),
+    ...(label ? { label } : {}),
+  };
+}
+
+function normalizeRanges(value: unknown): DiscountRange[] {
+  return parseRanges(value).sort((first, second) => first.min_m2 - second.min_m2);
+}
+
+function validateRanges(ranges: DiscountRange[]) {
+  const errors: string[] = [];
+
+  ranges.forEach((range, index) => {
+    const row = index + 1;
+    if (range.discount_percent <= 0 || range.discount_percent > 100) {
+      errors.push(`Riga ${row}: la percentuale deve essere tra 0 e 100.`);
+    }
+    if (range.max_m2 !== null && range.max_m2 < range.min_m2) {
+      errors.push(`Riga ${row}: "A mq" non puo essere minore di "Da mq".`);
+    }
+  });
+
+  const sorted = [...ranges].sort((first, second) => first.min_m2 - second.min_m2);
+  sorted.forEach((range, index) => {
+    const next = sorted[index + 1];
+    if (!next) return;
+
+    if (range.max_m2 === null) {
+      errors.push(
+        `Il range da ${formatNumber(range.min_m2)} mq senza limite massimo deve essere l'ultimo.`,
+      );
+      return;
+    }
+
+    if (next.min_m2 < range.max_m2) {
+      errors.push(
+        `I range ${formatNumber(range.min_m2)}-${formatNumber(
+          range.max_m2,
+        )} mq e ${formatNumber(next.min_m2)}-${formatNumber(
+          next.max_m2,
+        )} mq si sovrappongono.`,
+      );
+    }
+  });
+
+  return [...new Set(errors)];
+}
+
+function toNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+
+  const number = Number(value.replace(",", ".").trim());
+  return Number.isFinite(number) ? number : null;
+}
+
+function roundDecimal(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function formatNumber(value: number | null) {
+  if (value === null) return "+";
+  return new Intl.NumberFormat("it-IT", {
+    maximumFractionDigits: 3,
+  }).format(value);
+}
+
+function mapProduct(product: any): ProductSummary {
+  const variants = product.variants.edges.map(({ node }: any) => {
+    const quantityOption =
+      node.selectedOptions.find(
+        (option: { name: string }) => option.name.toLowerCase() === "quantita",
+      ) ??
+      node.selectedOptions.find(
+        (option: { name: string }) => option.name.toLowerCase() === "quantità",
+      );
+
+    return {
+      id: node.id,
+      title: node.title,
+      price: node.price,
+      quantityOption: quantityOption?.value ?? null,
+    };
+  });
+
+  return {
+    id: product.id,
+    title: product.title,
+    handle: product.handle,
+    status: product.status,
+    enabled: product.enabledMetafield?.value === "true",
+    ranges: normalizeRanges(product.rangesMetafield?.value),
+    variants,
+  };
+}
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { admin } = await authenticate.admin(request);
+  const url = new URL(request.url);
+  const search = url.searchParams.get("q")?.trim() ?? "";
+  const selectedProductId = url.searchParams.get("productId");
+
+  const response = await admin.graphql(PRODUCTS_QUERY, {
+    variables: {
+      query: search ? `title:*${search}* OR handle:*${search}*` : undefined,
+    },
+  });
+  const responseJson: any = await response.json();
+
+  if (responseJson.errors?.length) {
+    throw new Error(responseJson.errors.map((error: any) => error.message).join("\n"));
+  }
+
+  const products: ProductSummary[] = responseJson.data.products.edges.map(({ node }: any) =>
+    mapProduct(node),
+  );
+  const selectedProduct =
+    products.find((product: ProductSummary) => product.id === selectedProductId) ??
+    products[0] ??
+    null;
+
+  return {
+    products,
+    selectedProduct,
+    search,
+  } satisfies LoaderData;
+};
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const productId = String(formData.get("productId") ?? "");
+  const enabled = String(formData.get("enabled") ?? "false") === "true";
+  const ranges = normalizeRanges(String(formData.get("ranges") ?? "[]"));
+  const errors = validateRanges(ranges);
+
+  if (!productId) {
+    errors.push("Seleziona un prodotto prima di salvare.");
+  }
+
+  if (errors.length) {
+    return { ok: false, errors } satisfies ActionData;
+  }
+
+  const response = await admin.graphql(METAFIELDS_SET_MUTATION, {
+    variables: {
+      metafields: [
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_pricing_enabled",
+          type: "boolean",
+          value: enabled ? "true" : "false",
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_discount_ranges",
+          type: "json",
+          value: JSON.stringify(ranges),
+        },
+      ],
+    },
+  });
+  const responseJson: any = await response.json();
+  const userErrors =
+    responseJson.data?.metafieldsSet?.userErrors?.map(
+      (error: { message: string }) => error.message,
+    ) ?? [];
+
+  if (responseJson.errors?.length || userErrors.length) {
+    return {
+      ok: false,
+      errors: [
+        ...(responseJson.errors?.map((error: any) => error.message) ?? []),
+        ...userErrors,
+      ],
+    } satisfies ActionData;
+  }
+
+  return {
+    ok: true,
+    savedProductId: productId,
+  } satisfies ActionData;
+};
+
+export default function Index() {
+  const { products, selectedProduct, search } = useLoaderData() as LoaderData;
+  const fetcher = useFetcher();
+  const actionData = fetcher.data as ActionData | undefined;
+  const shopify = useAppBridge();
+  const [enabled, setEnabled] = useState(selectedProduct?.enabled ?? false);
+  const [ranges, setRanges] = useState<DiscountRange[]>(
+    selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
+  );
+
+  const isSaving = fetcher.state !== "idle";
+  const totalConfigured = products.filter((product) => product.enabled).length;
+  const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
+  const hasQuantityVariants = Boolean(
+    selectedProduct?.variants.some((variant) => variant.quantityOption),
+  );
+
+  useEffect(() => {
+    setEnabled(selectedProduct?.enabled ?? false);
+    setRanges(
+      selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
+    );
+  }, [selectedProduct?.id]);
+
+  useEffect(() => {
+    if (actionData?.ok) {
+      shopify.toast.show("Configurazione mq salvata");
+    }
+  }, [actionData, shopify]);
+
+  const updateRange = (
+    index: number,
+    field: keyof DiscountRange,
+    value: string,
+  ) => {
+    setRanges((current) =>
+      current.map((range, rangeIndex) => {
+        if (rangeIndex !== index) return range;
+
+        if (field === "label") {
+          return { ...range, label: value };
+        }
+
+        if (field === "max_m2" && value.trim() === "") {
+          return { ...range, max_m2: null };
+        }
+
+        return {
+          ...range,
+          [field]: Number(value.replace(",", ".")),
+        };
+      }),
+    );
+  };
+
+  const addRange = () => {
+    setRanges((current) => [
+      ...current,
+      {
+        min_m2: current.at(-1)?.max_m2 ?? current.at(-1)?.min_m2 ?? 0,
+        max_m2: null,
+        discount_percent: 0,
+        label: "",
+      },
+    ]);
+  };
+
+  const removeRange = (index: number) => {
+    setRanges((current) => {
+      const next = current.filter((_, rangeIndex) => rangeIndex !== index);
+      return next.length ? next : [{ ...EMPTY_RANGE }];
+    });
+  };
+
+  const sanitizedRanges = normalizeRanges(ranges);
+
+  return (
+    <s-page heading="Custom SQM Pricing">
+      <style>{styles}</style>
+
+      <s-section>
+        <div className="sqm-layout">
+          <aside className="sqm-sidebar">
+            <div className="sqm-panel sqm-panel--compact">
+              <div className="sqm-panel__header">
+                <div>
+                  <p className="sqm-kicker">Prodotti</p>
+                  <h2>Configurazioni</h2>
+                </div>
+                <span className="sqm-counter">{totalConfigured}</span>
+              </div>
+
+              <Form className="sqm-search" method="get">
+                <input
+                  aria-label="Cerca prodotto"
+                  defaultValue={search}
+                  name="q"
+                  placeholder="Cerca titolo o handle"
+                  type="search"
+                />
+                <button type="submit">Cerca</button>
+              </Form>
+
+              <div className="sqm-product-list">
+                {products.map((product) => {
+                  const href = `/app?productId=${encodeURIComponent(product.id)}${
+                    search ? `&q=${encodeURIComponent(search)}` : ""
+                  }`;
+
+                  return (
+                    <a
+                      className={`sqm-product ${
+                        product.id === selectedProduct?.id ? "is-selected" : ""
+                      }`}
+                      href={href}
+                      key={product.id}
+                    >
+                      <span>
+                        <strong>{product.title}</strong>
+                        <small>{product.handle}</small>
+                      </span>
+                      {product.enabled ? <em>Attivo</em> : null}
+                    </a>
+                  );
+                })}
+
+                {!products.length ? (
+                  <p className="sqm-empty">Nessun prodotto trovato.</p>
+                ) : null}
+              </div>
+            </div>
+          </aside>
+
+          <main className="sqm-main">
+            {selectedProduct ? (
+              <fetcher.Form method="post" className="sqm-panel">
+                <input name="productId" type="hidden" value={selectedProduct.id} />
+                <input name="enabled" type="hidden" value={String(enabled)} />
+                <input
+                  name="ranges"
+                  type="hidden"
+                  value={JSON.stringify(sanitizedRanges)}
+                />
+
+                <div className="sqm-panel__header sqm-panel__header--product">
+                  <div>
+                    <p className="sqm-kicker">Prodotto selezionato</p>
+                    <h1>{selectedProduct.title}</h1>
+                    <p className="sqm-muted">
+                      Base prezzo da variante Shopify “Quantità”; sconto applicato
+                      sul totale calcolato in mq.
+                    </p>
+                  </div>
+                  <label className="sqm-toggle">
+                    <input
+                      checked={enabled}
+                      onChange={(event) => setEnabled(event.currentTarget.checked)}
+                      type="checkbox"
+                    />
+                    <span>{enabled ? "Attivo" : "Disattivo"}</span>
+                  </label>
+                </div>
+
+                <div className="sqm-section-grid">
+                  <section>
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Range metri quadrati</h2>
+                        <p>
+                          Imposta le soglie prodotto per prodotto. Lascia “A mq”
+                          vuoto per indicare nessun limite massimo.
+                        </p>
+                      </div>
+                      <button className="sqm-button" onClick={addRange} type="button">
+                        Aggiungi
+                      </button>
+                    </div>
+
+                    <div className="sqm-table-wrap">
+                      <table className="sqm-table">
+                        <thead>
+                          <tr>
+                            <th>Da mq</th>
+                            <th>A mq</th>
+                            <th>Sconto %</th>
+                            <th>Etichetta interna</th>
+                            <th aria-label="Azioni" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ranges.map((range, index) => (
+                            <tr key={index}>
+                              <td>
+                                <input
+                                  min="0"
+                                  onChange={(event) =>
+                                    updateRange(index, "min_m2", event.target.value)
+                                  }
+                                  step="0.001"
+                                  type="number"
+                                  value={Number.isFinite(range.min_m2) ? range.min_m2 : ""}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  min="0"
+                                  onChange={(event) =>
+                                    updateRange(index, "max_m2", event.target.value)
+                                  }
+                                  placeholder="+"
+                                  step="0.001"
+                                  type="number"
+                                  value={range.max_m2 ?? ""}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  min="0"
+                                  max="100"
+                                  onChange={(event) =>
+                                    updateRange(
+                                      index,
+                                      "discount_percent",
+                                      event.target.value,
+                                    )
+                                  }
+                                  step="0.01"
+                                  type="number"
+                                  value={
+                                    Number.isFinite(range.discount_percent)
+                                      ? range.discount_percent
+                                      : ""
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  onChange={(event) =>
+                                    updateRange(index, "label", event.target.value)
+                                  }
+                                  placeholder="Es. Promo grandi formati"
+                                  type="text"
+                                  value={range.label ?? ""}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  aria-label="Rimuovi range"
+                                  className="sqm-icon-button"
+                                  onClick={() => removeRange(index)}
+                                  type="button"
+                                >
+                                  ×
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {rangeErrors.length ? (
+                      <div className="sqm-errors">
+                        {rangeErrors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {actionData?.errors?.length ? (
+                      <div className="sqm-errors">
+                        {actionData.errors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="sqm-variants">
+                    <h2>Prezzi variante “Quantità”</h2>
+                    {hasQuantityVariants ? (
+                      <div className="sqm-variant-grid">
+                        {selectedProduct.variants
+                          .filter((variant) => variant.quantityOption)
+                          .map((variant) => (
+                            <div className="sqm-variant" key={variant.id}>
+                              <span>{variant.quantityOption}</span>
+                              <strong>{formatCurrency(variant.price)}</strong>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="sqm-muted">
+                        Non ho trovato un’opzione chiamata “Quantità” su questo
+                        prodotto.
+                      </p>
+                    )}
+                  </section>
+                </div>
+
+                <div className="sqm-actions">
+                  <button
+                    className="sqm-button sqm-button--primary"
+                    disabled={isSaving || Boolean(rangeErrors.length)}
+                    type="submit"
+                  >
+                    {isSaving ? "Salvataggio..." : "Salva configurazione"}
+                  </button>
+                </div>
+              </fetcher.Form>
+            ) : (
+              <div className="sqm-panel">
+                <h1>Seleziona un prodotto</h1>
+                <p className="sqm-muted">
+                  Cerca un prodotto per impostare range mq e sconti dedicati.
+                </p>
+              </div>
+            )}
+          </main>
+        </div>
+      </s-section>
+    </s-page>
+  );
+}
+
+function formatCurrency(value: string) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return value;
+
+  return new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR",
+  }).format(number);
+}
+
+const styles = `
+  .sqm-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .sqm-panel {
+    background: #ffffff;
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .sqm-panel--compact {
+    padding: 16px;
+  }
+
+  .sqm-panel__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+
+  .sqm-panel__header h1,
+  .sqm-panel__header h2,
+  .sqm-section-heading h2,
+  .sqm-variants h2 {
+    margin: 0;
+    color: #202223;
+    line-height: 1.2;
+  }
+
+  .sqm-panel__header h1 {
+    font-size: 24px;
+  }
+
+  .sqm-panel__header h2,
+  .sqm-section-heading h2,
+  .sqm-variants h2 {
+    font-size: 16px;
+  }
+
+  .sqm-kicker {
+    margin: 0 0 4px;
+    color: #6d7175;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .sqm-muted,
+  .sqm-section-heading p,
+  .sqm-empty {
+    color: #6d7175;
+    margin: 6px 0 0;
+  }
+
+  .sqm-counter {
+    align-items: center;
+    background: #eaf5f2;
+    border-radius: 999px;
+    color: #006c52;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 700;
+    justify-content: center;
+    min-width: 28px;
+    padding: 5px 9px;
+  }
+
+  .sqm-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .sqm-search input,
+  .sqm-table input {
+    border: 1px solid #c9cccf;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font: inherit;
+    min-height: 36px;
+    padding: 7px 10px;
+    width: 100%;
+  }
+
+  .sqm-search button,
+  .sqm-button {
+    background: #ffffff;
+    border: 1px solid #8c9196;
+    border-radius: 6px;
+    color: #202223;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+    min-height: 36px;
+    padding: 7px 12px;
+  }
+
+  .sqm-button--primary {
+    background: #008060;
+    border-color: #008060;
+    color: #ffffff;
+  }
+
+  .sqm-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .sqm-product-list {
+    display: grid;
+    gap: 8px;
+    max-height: 640px;
+    overflow: auto;
+  }
+
+  .sqm-product {
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    color: #202223;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 10px;
+    text-decoration: none;
+  }
+
+  .sqm-product strong,
+  .sqm-product small {
+    display: block;
+  }
+
+  .sqm-product small {
+    color: #6d7175;
+    margin-top: 2px;
+  }
+
+  .sqm-product em {
+    color: #008060;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  .sqm-product.is-selected {
+    background: #f2f7ff;
+    border-color: #2c6ecb;
+  }
+
+  .sqm-toggle {
+    align-items: center;
+    display: inline-flex;
+    gap: 8px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .sqm-toggle input {
+    height: 18px;
+    width: 18px;
+  }
+
+  .sqm-section-grid {
+    display: grid;
+    gap: 24px;
+  }
+
+  .sqm-section-heading {
+    align-items: start;
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .sqm-table-wrap {
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+
+  .sqm-table {
+    border-collapse: collapse;
+    min-width: 760px;
+    width: 100%;
+  }
+
+  .sqm-table th {
+    background: #f6f6f7;
+    color: #6d7175;
+    font-size: 12px;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .sqm-table th,
+  .sqm-table td {
+    border-bottom: 1px solid #dfe3e8;
+    padding: 10px;
+  }
+
+  .sqm-table tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .sqm-icon-button {
+    background: #ffffff;
+    border: 1px solid #c9cccf;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 18px;
+    height: 36px;
+    line-height: 1;
+    width: 36px;
+  }
+
+  .sqm-errors {
+    background: #fff4f4;
+    border: 1px solid #fed3d1;
+    border-radius: 8px;
+    color: #8e1f0b;
+    margin-top: 12px;
+    padding: 10px 12px;
+  }
+
+  .sqm-errors p {
+    margin: 0;
+  }
+
+  .sqm-errors p + p {
+    margin-top: 4px;
+  }
+
+  .sqm-variant-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    margin-top: 12px;
+  }
+
+  .sqm-variant {
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    padding: 10px;
+  }
+
+  .sqm-variant span,
+  .sqm-variant strong {
+    display: block;
+  }
+
+  .sqm-variant span {
+    color: #6d7175;
+    font-size: 12px;
+  }
+
+  .sqm-actions {
+    border-top: 1px solid #dfe3e8;
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 16px;
+  }
+
+  @media (max-width: 900px) {
+    .sqm-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .sqm-panel__header--product,
+    .sqm-section-heading {
+      display: grid;
+    }
+  }
+`;
+
+export const headers: HeadersFunction = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};

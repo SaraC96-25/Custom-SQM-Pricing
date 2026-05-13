@@ -1,0 +1,33 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "b1421b1709367593447051eaaf25c6cb"
+name = "Custom SQM Pricing"
+application_url = "https://custom-sqm-pricing-wowstampa.onrender.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-01"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_cart_transforms,write_cart_transforms,write_metaobject_definitions,read_products,write_products"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://custom-sqm-pricing-wowstampa.onrender.com/auth/callback",
+  "https://custom-sqm-pricing-wowstampa.onrender.com/auth/shopify/callback",
+  "https://custom-sqm-pricing-wowstampa.onrender.com/api/auth/callback"
+]
