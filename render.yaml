@@ -3,7 +3,7 @@ services:
     name: custom-sqm-pricing-wowstampa
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run render-build
+    buildCommand: npm install && npm run render-build
     startCommand: npm run render-start
     autoDeploy: true
     envVars:
