@@ -505,87 +505,76 @@ export default function Index() {
                       </button>
                     </div>
 
-                    <div className="sqm-table-wrap">
-                      <table className="sqm-table">
-                        <thead>
-                          <tr>
-                            <th>Da mq</th>
-                            <th>A mq</th>
-                            <th>Sconto %</th>
-                            <th>Etichetta interna</th>
-                            <th aria-label="Azioni" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ranges.map((range, index) => (
-                            <tr key={index}>
-                              <td>
-                                <input
-                                  min="0"
-                                  onChange={(event) =>
-                                    updateRange(index, "min_m2", event.target.value)
-                                  }
-                                  step="0.001"
-                                  type="number"
-                                  value={Number.isFinite(range.min_m2) ? range.min_m2 : ""}
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  min="0"
-                                  onChange={(event) =>
-                                    updateRange(index, "max_m2", event.target.value)
-                                  }
-                                  placeholder="+"
-                                  step="0.001"
-                                  type="number"
-                                  value={range.max_m2 ?? ""}
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  min="0"
-                                  max="100"
-                                  onChange={(event) =>
-                                    updateRange(
-                                      index,
-                                      "discount_percent",
-                                      event.target.value,
-                                    )
-                                  }
-                                  step="0.01"
-                                  type="number"
-                                  value={
-                                    Number.isFinite(range.discount_percent)
-                                      ? range.discount_percent
-                                      : ""
-                                  }
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  onChange={(event) =>
-                                    updateRange(index, "label", event.target.value)
-                                  }
-                                  placeholder="Es. Promo grandi formati"
-                                  type="text"
-                                  value={range.label ?? ""}
-                                />
-                              </td>
-                              <td>
-                                <button
-                                  aria-label="Rimuovi range"
-                                  className="sqm-icon-button"
-                                  onClick={() => removeRange(index)}
-                                  type="button"
-                                >
-                                  ×
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="sqm-range-list">
+                      {ranges.map((range, index) => (
+                        <div className="sqm-range-row" key={index}>
+                          <label className="sqm-field">
+                            <span>Da mq</span>
+                            <input
+                              min="0"
+                              onChange={(event) =>
+                                updateRange(index, "min_m2", event.target.value)
+                              }
+                              step="0.001"
+                              type="number"
+                              value={Number.isFinite(range.min_m2) ? range.min_m2 : ""}
+                            />
+                          </label>
+                          <label className="sqm-field">
+                            <span>A mq</span>
+                            <input
+                              min="0"
+                              onChange={(event) =>
+                                updateRange(index, "max_m2", event.target.value)
+                              }
+                              placeholder="+"
+                              step="0.001"
+                              type="number"
+                              value={range.max_m2 ?? ""}
+                            />
+                          </label>
+                          <label className="sqm-field">
+                            <span>Sconto %</span>
+                            <input
+                              min="0"
+                              max="100"
+                              onChange={(event) =>
+                                updateRange(
+                                  index,
+                                  "discount_percent",
+                                  event.target.value,
+                                )
+                              }
+                              step="0.01"
+                              type="number"
+                              value={
+                                Number.isFinite(range.discount_percent)
+                                  ? range.discount_percent
+                                  : ""
+                              }
+                            />
+                          </label>
+                          <label className="sqm-field sqm-field--label">
+                            <span>Etichetta interna</span>
+                            <input
+                              onChange={(event) =>
+                                updateRange(index, "label", event.target.value)
+                              }
+                              placeholder="Es. Promo grandi formati"
+                              type="text"
+                              value={range.label ?? ""}
+                            />
+                          </label>
+                          <button
+                            aria-label="Rimuovi range"
+                            className="sqm-icon-button"
+                            onClick={() => removeRange(index)}
+                            type="button"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
                     </div>
 
                     {rangeErrors.length ? (
@@ -665,16 +654,26 @@ function formatCurrency(value: string) {
 const styles = `
   .sqm-layout {
     display: grid;
-    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-    gap: 20px;
+    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+    gap: 18px;
     align-items: start;
+    margin: 0 auto;
+    max-width: 1180px;
+    width: 100%;
+  }
+
+  .sqm-sidebar,
+  .sqm-main {
+    min-width: 0;
   }
 
   .sqm-panel {
     background: #ffffff;
     border: 1px solid #dfe3e8;
     border-radius: 8px;
-    padding: 20px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+    min-width: 0;
+    padding: 18px;
   }
 
   .sqm-panel--compact {
@@ -699,7 +698,7 @@ const styles = `
   }
 
   .sqm-panel__header h1 {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .sqm-panel__header h2,
@@ -744,7 +743,7 @@ const styles = `
   }
 
   .sqm-search input,
-  .sqm-table input {
+  .sqm-field input {
     border: 1px solid #c9cccf;
     border-radius: 6px;
     box-sizing: border-box;
@@ -752,6 +751,13 @@ const styles = `
     min-height: 36px;
     padding: 7px 10px;
     width: 100%;
+  }
+
+  .sqm-field input:focus,
+  .sqm-search input:focus {
+    border-color: #008060;
+    box-shadow: 0 0 0 1px #008060;
+    outline: none;
   }
 
   .sqm-search button,
@@ -814,8 +820,8 @@ const styles = `
   }
 
   .sqm-product.is-selected {
-    background: #f2f7ff;
-    border-color: #2c6ecb;
+    background: #edf7f4;
+    border-color: #008060;
   }
 
   .sqm-toggle {
@@ -844,34 +850,34 @@ const styles = `
     margin-bottom: 12px;
   }
 
-  .sqm-table-wrap {
+  .sqm-range-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .sqm-range-row {
+    align-items: end;
+    background: #fbfbfc;
     border: 1px solid #dfe3e8;
     border-radius: 8px;
-    overflow-x: auto;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(82px, 1fr) minmax(82px, 1fr) minmax(82px, 0.8fr) minmax(140px, 1.45fr) 38px;
+    padding: 12px;
   }
 
-  .sqm-table {
-    border-collapse: collapse;
-    min-width: 760px;
-    width: 100%;
+  .sqm-field {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
   }
 
-  .sqm-table th {
-    background: #f6f6f7;
+  .sqm-field span {
     color: #6d7175;
-    font-size: 12px;
-    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
     text-transform: uppercase;
-  }
-
-  .sqm-table th,
-  .sqm-table td {
-    border-bottom: 1px solid #dfe3e8;
-    padding: 10px;
-  }
-
-  .sqm-table tr:last-child td {
-    border-bottom: 0;
   }
 
   .sqm-icon-button {
@@ -883,6 +889,12 @@ const styles = `
     height: 36px;
     line-height: 1;
     width: 36px;
+  }
+
+  .sqm-icon-button:hover {
+    background: #fff4f4;
+    border-color: #fed3d1;
+    color: #8e1f0b;
   }
 
   .sqm-errors {
@@ -933,6 +945,27 @@ const styles = `
     padding-top: 16px;
   }
 
+  @media (max-width: 1120px) {
+    .sqm-layout {
+      grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    }
+
+    .sqm-range-row {
+      grid-template-columns: repeat(3, minmax(84px, 1fr)) 38px;
+    }
+
+    .sqm-field--label {
+      grid-column: 1 / 4;
+      grid-row: 2;
+    }
+
+    .sqm-range-row .sqm-icon-button {
+      grid-column: 4;
+      grid-row: 1 / 3;
+      justify-self: end;
+    }
+  }
+
   @media (max-width: 900px) {
     .sqm-layout {
       grid-template-columns: 1fr;
@@ -941,6 +974,23 @@ const styles = `
     .sqm-panel__header--product,
     .sqm-section-heading {
       display: grid;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .sqm-range-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sqm-field--label {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+
+    .sqm-range-row .sqm-icon-button {
+      grid-column: 2;
+      grid-row: auto;
+      justify-self: end;
     }
   }
 `;
