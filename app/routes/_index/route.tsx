@@ -43,8 +43,8 @@ export default function App() {
             prodotto.
           </li>
           <li>
-            <strong>Varianti Quantità</strong>. Usa il prezzo variante Shopify
-            come base al metro quadro.
+            <strong>Quantity selector</strong>. Moltiplica i mq calcolati per la
+            quantita scelta nel tema.
           </li>
           <li>
             <strong>Metafield prodotto</strong>. Salva la configurazione dove il

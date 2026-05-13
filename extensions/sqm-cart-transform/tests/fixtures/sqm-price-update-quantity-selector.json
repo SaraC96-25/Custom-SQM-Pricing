@@ -7,7 +7,7 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/1",
-            "quantity": 1,
+            "quantity": 4,
             "finalPriceCents": {
               "value": "8640"
             },
@@ -25,7 +25,7 @@
             "price": {
               "adjustment": {
                 "fixedPricePerUnit": {
-                  "amount": "86.40"
+                  "amount": "21.60"
                 }
               }
             }

@@ -25,13 +25,18 @@ export function cartTransformRun(input) {
 
       if (!cents) return null;
 
+      const quantity = Number.isFinite(line.quantity) && line.quantity > 0
+        ? line.quantity
+        : 1;
+      const unitCents = Math.round(cents / quantity);
+
       return {
         lineUpdate: {
           cartLineId: line.id,
           price: {
             adjustment: {
               fixedPricePerUnit: {
-                amount: centsToDecimal(cents),
+                amount: centsToDecimal(unitCents),
               },
             },
           },

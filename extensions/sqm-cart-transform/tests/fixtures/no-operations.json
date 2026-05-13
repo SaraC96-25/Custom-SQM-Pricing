@@ -7,6 +7,7 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/1",
+            "quantity": 1,
             "finalPriceCents": null,
             "calculatedPriceCents": null,
             "calculatedPriceLabel": null

@@ -464,10 +464,6 @@ export default function Index() {
   const isSaving = fetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
   const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
-  const hasQuantityVariants = Boolean(
-    selectedProduct?.variants.some((variant) => variant.quantityOption),
-  );
-
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setRanges(
@@ -612,8 +608,8 @@ export default function Index() {
                     <p className="sqm-kicker">Prodotto selezionato</p>
                     <h1>{selectedProduct.title}</h1>
                     <p className="sqm-muted">
-                      Base prezzo da variante Shopify “Quantità”; sconto applicato
-                      sul totale calcolato in mq.
+                      Base prezzo dalla variante Shopify selezionata; area calcolata
+                      con base, altezza e quantity selector.
                     </p>
                   </div>
                   <label className="sqm-toggle">
@@ -731,24 +727,20 @@ export default function Index() {
                   </section>
 
                   <section className="sqm-variants">
-                    <h2>Prezzi variante “Quantità”</h2>
-                    {hasQuantityVariants ? (
-                      <div className="sqm-variant-grid">
-                        {selectedProduct.variants
-                          .filter((variant) => variant.quantityOption)
-                          .map((variant) => (
-                            <div className="sqm-variant" key={variant.id}>
-                              <span>{variant.quantityOption}</span>
-                              <strong>{formatCurrency(variant.price)}</strong>
-                            </div>
-                          ))}
-                      </div>
-                    ) : (
-                      <p className="sqm-muted">
-                        Non ho trovato un’opzione chiamata “Quantità” su questo
-                        prodotto.
-                      </p>
-                    )}
+                    <h2>Prezzo base al mq</h2>
+                    <p className="sqm-muted">
+                      Il calcolatore usa il prezzo della variante Shopify corrente
+                      come €/mq. La quantità viene presa dal quantity selector del
+                      tema.
+                    </p>
+                    <div className="sqm-variant-grid">
+                      {selectedProduct.variants.map((variant) => (
+                        <div className="sqm-variant" key={variant.id}>
+                          <span>{variant.title}</span>
+                          <strong>{formatCurrency(variant.price)}</strong>
+                        </div>
+                      ))}
+                    </div>
                   </section>
                 </div>
 

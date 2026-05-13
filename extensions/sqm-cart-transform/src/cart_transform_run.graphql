@@ -2,6 +2,7 @@ query CartTransformRunInput {
   cart {
     lines {
       id
+      quantity
       finalPriceCents: attribute(key: "_sqm_final_price_cents") {
         value
       }
