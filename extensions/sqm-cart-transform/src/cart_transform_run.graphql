@@ -1,0 +1,13 @@
+query CartTransformRunInput {
+  cart {
+    lines {
+      id
+      finalPriceCents: attribute(key: "_sqm_final_price_cents") {
+        value
+      }
+      calculatedPriceCents: attribute(key: "_sqm_calculated_price_cents") {
+        value
+      }
+    }
+  }
+}

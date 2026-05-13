@@ -37,12 +37,19 @@ type LoaderData = {
   products: ProductSummary[];
   selectedProduct: ProductSummary | null;
   search: string;
+  cartTransformStatus: CartTransformStatus;
 };
 
 type ActionData = {
   ok: boolean;
   errors?: string[];
   savedProductId?: string;
+};
+
+type CartTransformStatus = {
+  active: boolean;
+  eligibleForPriceUpdates: boolean;
+  message?: string;
 };
 
 const EMPTY_RANGE: DiscountRange = {
@@ -99,6 +106,48 @@ const METAFIELDS_SET_MUTATION = `#graphql
         field
         message
         code
+      }
+    }
+  }
+`;
+
+const CART_TRANSFORM_STATUS_QUERY = `#graphql
+  query CustomSqmPricingCartTransformStatus {
+    shop {
+      features {
+        cartTransform {
+          eligibleOperations {
+            updateOperation
+          }
+        }
+      }
+    }
+    shopifyFunctions(first: 25) {
+      nodes {
+        id
+        title
+        apiType
+      }
+    }
+    cartTransforms(first: 25) {
+      nodes {
+        id
+        functionId
+      }
+    }
+  }
+`;
+
+const CART_TRANSFORM_CREATE_MUTATION = `#graphql
+  mutation CustomSqmPricingCartTransformCreate($functionId: String!) {
+    cartTransformCreate(functionId: $functionId, blockOnFailure: false) {
+      cartTransform {
+        id
+        functionId
+      }
+      userErrors {
+        field
+        message
       }
     }
   }
@@ -237,11 +286,84 @@ function mapProduct(product: any): ProductSummary {
   };
 }
 
+async function ensureCartTransform(admin: any): Promise<CartTransformStatus> {
+  try {
+    const statusResponse = await admin.graphql(CART_TRANSFORM_STATUS_QUERY);
+    const statusJson: any = await statusResponse.json();
+
+    if (statusJson.errors?.length) {
+      return {
+        active: false,
+        eligibleForPriceUpdates: false,
+        message: statusJson.errors.map((error: any) => error.message).join(" "),
+      };
+    }
+
+    const functions = statusJson.data?.shopifyFunctions?.nodes ?? [];
+    const cartTransforms = statusJson.data?.cartTransforms?.nodes ?? [];
+    const eligibleForPriceUpdates = Boolean(
+      statusJson.data?.shop?.features?.cartTransform?.eligibleOperations
+        ?.updateOperation,
+    );
+    const sqmFunction = functions.find(
+      (shopifyFunction: { apiType?: string; title?: string }) =>
+        shopifyFunction.apiType === "cart_transform" &&
+        shopifyFunction.title === "sqm-cart-transform",
+    );
+
+    if (!sqmFunction) {
+      return {
+        active: false,
+        eligibleForPriceUpdates,
+        message: "Function sqm-cart-transform non trovata nella versione app attiva.",
+      };
+    }
+
+    const existing = cartTransforms.find(
+      (cartTransform: { functionId?: string }) =>
+        cartTransform.functionId === sqmFunction.id,
+    );
+
+    if (existing) {
+      return { active: true, eligibleForPriceUpdates };
+    }
+
+    const createResponse = await admin.graphql(CART_TRANSFORM_CREATE_MUTATION, {
+      variables: { functionId: sqmFunction.id },
+    });
+    const createJson: any = await createResponse.json();
+    const userErrors =
+      createJson.data?.cartTransformCreate?.userErrors?.map(
+        (error: { message: string }) => error.message,
+      ) ?? [];
+
+    if (createJson.errors?.length || userErrors.length) {
+      return {
+        active: false,
+        eligibleForPriceUpdates,
+        message: [
+          ...(createJson.errors?.map((error: any) => error.message) ?? []),
+          ...userErrors,
+        ].join(" "),
+      };
+    }
+
+    return { active: true, eligibleForPriceUpdates };
+  } catch (error) {
+    return {
+      active: false,
+      eligibleForPriceUpdates: false,
+      message: error instanceof Error ? error.message : "Errore cart transform.",
+    };
+  }
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const url = new URL(request.url);
   const search = url.searchParams.get("q")?.trim() ?? "";
   const selectedProductId = url.searchParams.get("productId");
+  const cartTransformStatus = await ensureCartTransform(admin);
 
   const response = await admin.graphql(PRODUCTS_QUERY, {
     variables: {
@@ -266,6 +388,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     products,
     selectedProduct,
     search,
+    cartTransformStatus,
   } satisfies LoaderData;
 };
 
@@ -328,7 +451,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { products, selectedProduct, search } = useLoaderData() as LoaderData;
+  const { products, selectedProduct, search, cartTransformStatus } =
+    useLoaderData() as LoaderData;
   const fetcher = useFetcher();
   const actionData = fetcher.data as ActionData | undefined;
   const shopify = useAppBridge();
@@ -418,6 +542,18 @@ export default function Index() {
                 </div>
                 <span className="sqm-counter">{totalConfigured}</span>
               </div>
+
+              {!cartTransformStatus.active || !cartTransformStatus.eligibleForPriceUpdates ? (
+                <div className="sqm-notice">
+                  <strong>Prezzo carrello</strong>
+                  <span>
+                    {!cartTransformStatus.eligibleForPriceUpdates
+                      ? "Questo shop non risulta abilitato agli update prezzo via Cart Transform. Funziona su development store o Shopify Plus."
+                      : cartTransformStatus.message ??
+                        "Cart Transform non ancora attiva su questo shop."}
+                  </span>
+                </div>
+              ) : null}
 
               <Form className="sqm-search" method="get">
                 <input
@@ -733,6 +869,23 @@ const styles = `
     justify-content: center;
     min-width: 28px;
     padding: 5px 9px;
+  }
+
+  .sqm-notice {
+    background: #fff8e5;
+    border: 1px solid #e6c56f;
+    border-radius: 6px;
+    color: #4f4700;
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+  }
+
+  .sqm-notice strong {
+    color: #332d00;
   }
 
   .sqm-search {
