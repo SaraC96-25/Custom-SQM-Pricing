@@ -8,7 +8,8 @@
           {
             "id": "gid://shopify/CartLine/1",
             "finalPriceCents": null,
-            "calculatedPriceCents": null
+            "calculatedPriceCents": null,
+            "calculatedPriceLabel": null
           }
         ]
       }

@@ -7,11 +7,11 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/1",
-            "finalPriceCents": {
-              "value": "8640"
-            },
+            "finalPriceCents": null,
             "calculatedPriceCents": null,
-            "calculatedPriceLabel": null
+            "calculatedPriceLabel": {
+              "value": "21,60 €"
+            }
           }
         ]
       }
@@ -24,7 +24,7 @@
             "price": {
               "adjustment": {
                 "fixedPricePerUnit": {
-                  "amount": "86.40"
+                  "amount": "21.60"
                 }
               }
             }

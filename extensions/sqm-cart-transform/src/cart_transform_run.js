@@ -21,7 +21,7 @@ export function cartTransformRun(input) {
     .map((line) => {
       const cents = parseCents(
         line.finalPriceCents?.value ?? line.calculatedPriceCents?.value,
-      );
+      ) ?? parseMoneyCents(line.calculatedPriceLabel?.value);
 
       if (!cents) return null;
 
@@ -54,6 +54,35 @@ function parseCents(value) {
   if (!Number.isFinite(cents) || cents <= 0) return null;
 
   return cents;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function parseMoneyCents(value) {
+  if (typeof value !== "string") return null;
+
+  const normalized = value
+    .replace(/\s/g, "")
+    .replace(/[^\d,.-]/g, "");
+
+  if (!normalized) return null;
+
+  const commaIndex = normalized.lastIndexOf(",");
+  const dotIndex = normalized.lastIndexOf(".");
+  const decimalSeparator =
+    commaIndex > -1 && commaIndex > dotIndex ? "," : dotIndex > -1 ? "." : "";
+  const decimalValue = decimalSeparator
+    ? normalized
+        .replace(new RegExp(`\\${decimalSeparator === "," ? "." : ","}`, "g"), "")
+        .replace(decimalSeparator, ".")
+    : normalized;
+  const amount = Number.parseFloat(decimalValue);
+
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  return Math.round(amount * 100);
 }
 
 /**

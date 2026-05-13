@@ -8,6 +8,9 @@ query CartTransformRunInput {
       calculatedPriceCents: attribute(key: "_sqm_calculated_price_cents") {
         value
       }
+      calculatedPriceLabel: attribute(key: "Prezzo calcolato") {
+        value
+      }
     }
   }
 }
