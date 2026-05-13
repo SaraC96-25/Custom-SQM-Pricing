@@ -155,7 +155,7 @@ function validateRanges(ranges: DiscountRange[]) {
 
   ranges.forEach((range, index) => {
     const row = index + 1;
-    if (range.discount_percent <= 0 || range.discount_percent > 100) {
+    if (range.discount_percent < 0 || range.discount_percent > 100) {
       errors.push(`Riga ${row}: la percentuale deve essere tra 0 e 100.`);
     }
     if (range.max_m2 !== null && range.max_m2 < range.min_m2) {
