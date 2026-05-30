@@ -29,6 +29,7 @@ type ProductSummary = {
   handle: string;
   status: string;
   enabled: boolean;
+  minimumAreaM2: number;
   ranges: DiscountRange[];
   variants: VariantSummary[];
 };
@@ -69,6 +70,9 @@ const PRODUCTS_QUERY = `#graphql
           handle
           status
           enabledMetafield: metafield(namespace: "custom", key: "sqm_pricing_enabled") {
+            value
+          }
+          minimumAreaMetafield: metafield(namespace: "custom", key: "sqm_minimum_area_m2") {
             value
           }
           rangesMetafield: metafield(namespace: "custom", key: "sqm_discount_ranges") {
@@ -281,6 +285,7 @@ function mapProduct(product: any): ProductSummary {
     handle: product.handle,
     status: product.status,
     enabled: product.enabledMetafield?.value === "true",
+    minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
     ranges: normalizeRanges(product.rangesMetafield?.value),
     variants,
   };
@@ -397,6 +402,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const productId = String(formData.get("productId") ?? "");
   const enabled = String(formData.get("enabled") ?? "false") === "true";
+  const minimumAreaM2 = Math.max(
+    0,
+    toNumber(String(formData.get("minimumAreaM2") ?? "0")) ?? 0,
+  );
   const ranges = normalizeRanges(String(formData.get("ranges") ?? "[]"));
   const errors = validateRanges(ranges);
 
@@ -417,6 +426,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_pricing_enabled",
           type: "boolean",
           value: enabled ? "true" : "false",
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_minimum_area_m2",
+          type: "number_decimal",
+          value: minimumAreaM2.toFixed(3),
         },
         {
           ownerId: productId,
@@ -457,6 +473,9 @@ export default function Index() {
   const actionData = fetcher.data as ActionData | undefined;
   const shopify = useAppBridge();
   const [enabled, setEnabled] = useState(selectedProduct?.enabled ?? false);
+  const [minimumAreaM2, setMinimumAreaM2] = useState(
+    selectedProduct?.minimumAreaM2 ?? 0,
+  );
   const [ranges, setRanges] = useState<DiscountRange[]>(
     selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
   );
@@ -466,6 +485,7 @@ export default function Index() {
   const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
+    setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
     setRanges(
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
@@ -598,6 +618,11 @@ export default function Index() {
                 <input name="productId" type="hidden" value={selectedProduct.id} />
                 <input name="enabled" type="hidden" value={String(enabled)} />
                 <input
+                  name="minimumAreaM2"
+                  type="hidden"
+                  value={String(minimumAreaM2)}
+                />
+                <input
                   name="ranges"
                   type="hidden"
                   value={JSON.stringify(sanitizedRanges)}
@@ -624,6 +649,38 @@ export default function Index() {
 
                 <div className="sqm-section-grid">
                   <section>
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Minimo di stampa</h2>
+                        <p>
+                          Se l area totale e inferiore a questa soglia, il prezzo
+                          resta quello del minimo fatturabile. Esempio: prezzo base
+                          12 €/mq e minimo 1 mq = anche 0,5 mq costa 12 €.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-minimum-box">
+                      <label className="sqm-field">
+                        <span>Mq minimi fatturabili</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setMinimumAreaM2(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="0"
+                          step="0.001"
+                          type="number"
+                          value={minimumAreaM2}
+                        />
+                      </label>
+                    </div>
+
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Range metri quadrati</h2>
@@ -833,6 +890,10 @@ const styles = `
   .sqm-section-heading h2,
   .sqm-variants h2 {
     font-size: 16px;
+  }
+
+  .sqm-minimum-box {
+    margin-bottom: 18px;
   }
 
   .sqm-kicker {
