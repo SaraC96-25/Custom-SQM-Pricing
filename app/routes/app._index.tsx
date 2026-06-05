@@ -521,7 +521,7 @@ export default function Index() {
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
     setPromoConfig(selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG });
-  }, [selectedProduct?.id]);
+  }, [selectedProduct]);
 
   useEffect(() => {
     if (actionData?.ok) {
