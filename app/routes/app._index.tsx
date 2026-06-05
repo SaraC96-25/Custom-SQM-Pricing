@@ -1536,7 +1536,7 @@ export default function Index() {
 
                         <div className="sqm-option-values">
                           {draftOptionGroup.options.map((option, optionIndex) => (
-                            <div className="sqm-option-value" key={`${option.value}-${optionIndex}`}>
+                            <div className="sqm-option-value" key={`draft-option-${optionIndex}`}>
                               <div className="sqm-option-value__header">
                                 <strong>{option.label || `Valore ${optionIndex + 1}`}</strong>
                                 <div className="sqm-option-card__actions">
