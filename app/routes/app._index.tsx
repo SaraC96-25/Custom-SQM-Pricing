@@ -8,6 +8,14 @@ import { Form, useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import {
+  EMPTY_PROMO_CONFIG,
+  normalizePromoConfig,
+  parsePromoConfig,
+  validatePromoConfig,
+  type PromoFormatConfig,
+  type PromoFormatEntry,
+} from "./sqm-promo-config";
 
 type DiscountRange = {
   min_m2: number;
@@ -31,6 +39,7 @@ type ProductSummary = {
   enabled: boolean;
   minimumAreaM2: number;
   ranges: DiscountRange[];
+  promoConfig: PromoFormatConfig;
   variants: VariantSummary[];
 };
 
@@ -76,6 +85,9 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           rangesMetafield: metafield(namespace: "custom", key: "sqm_discount_ranges") {
+            value
+          }
+          promoFormatsMetafield: metafield(namespace: "custom", key: "sqm_promo_formats") {
             value
           }
           variants(first: 100) {
@@ -287,6 +299,7 @@ function mapProduct(product: any): ProductSummary {
     enabled: product.enabledMetafield?.value === "true",
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
     ranges: normalizeRanges(product.rangesMetafield?.value),
+    promoConfig: parsePromoConfig(product.promoFormatsMetafield?.value),
     variants,
   };
 }
@@ -407,7 +420,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     toNumber(String(formData.get("minimumAreaM2") ?? "0")) ?? 0,
   );
   const ranges = normalizeRanges(String(formData.get("ranges") ?? "[]"));
+  const promoConfig = normalizePromoConfig(
+    parsePromoConfig(String(formData.get("promoConfig") ?? "{}")),
+  );
   const errors = validateRanges(ranges);
+  errors.push(...validatePromoConfig(promoConfig));
 
   if (!productId) {
     errors.push("Seleziona un prodotto prima di salvare.");
@@ -440,6 +457,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_discount_ranges",
           type: "json",
           value: JSON.stringify(ranges),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_promo_formats",
+          type: "json",
+          value: JSON.stringify(promoConfig),
         },
       ],
     },
@@ -479,16 +503,24 @@ export default function Index() {
   const [ranges, setRanges] = useState<DiscountRange[]>(
     selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
   );
+  const [promoConfig, setPromoConfig] = useState<PromoFormatConfig>(
+    selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG },
+  );
 
   const isSaving = fetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
   const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
+  const promoErrors = useMemo(
+    () => validatePromoConfig(normalizePromoConfig(promoConfig)),
+    [promoConfig],
+  );
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
     setRanges(
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
+    setPromoConfig(selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG });
   }, [selectedProduct?.id]);
 
   useEffect(() => {
@@ -541,7 +573,62 @@ export default function Index() {
     });
   };
 
+  const updatePromoField = (
+    field: keyof Pick<
+      PromoFormatConfig,
+      "enablePromoFormats" | "promoBadge" | "promoMessage"
+    >,
+    value: boolean | string,
+  ) => {
+    setPromoConfig((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const updatePromoFormat = (
+    index: number,
+    field: keyof PromoFormatEntry,
+    value: string,
+  ) => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: current.formats.map((format, formatIndex) => {
+        if (formatIndex !== index) return format;
+        if (field === "label") {
+          return { ...format, label: value };
+        }
+        return {
+          ...format,
+          [field]: Math.max(0, toNumber(value) ?? 0),
+        };
+      }),
+    }));
+  };
+
+  const addPromoFormat = () => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: [
+        ...current.formats,
+        {
+          label: "",
+          base: 0,
+          height: 0,
+        },
+      ],
+    }));
+  };
+
+  const removePromoFormat = (index: number) => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: current.formats.filter((_, formatIndex) => formatIndex !== index),
+    }));
+  };
+
   const sanitizedRanges = normalizeRanges(ranges);
+  const sanitizedPromoConfig = normalizePromoConfig(promoConfig);
 
   return (
     <s-page heading="Custom SQM Pricing">
@@ -627,6 +714,11 @@ export default function Index() {
                   type="hidden"
                   value={JSON.stringify(sanitizedRanges)}
                 />
+                <input
+                  name="promoConfig"
+                  type="hidden"
+                  value={JSON.stringify(sanitizedPromoConfig)}
+                />
 
                 <div className="sqm-panel__header sqm-panel__header--product">
                   <div>
@@ -649,6 +741,133 @@ export default function Index() {
 
                 <div className="sqm-section-grid">
                   <section>
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Formati promo</h2>
+                        <p>
+                          Attiva la scelta iniziale tra promo e personalizzato solo
+                          per questo prodotto. Se non ci sono formati validi, il
+                          frontend usera automaticamente il calcolatore standard.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-promo-box">
+                      <label className="sqm-toggle sqm-toggle--block">
+                        <input
+                          checked={promoConfig.enablePromoFormats}
+                          onChange={(event) =>
+                            updatePromoField(
+                              "enablePromoFormats",
+                              event.currentTarget.checked,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>Abilita promo / personalizzato</span>
+                      </label>
+
+                      <div className="sqm-promo-meta">
+                        <label className="sqm-field">
+                          <span>Badge promo</span>
+                          <input
+                            onChange={(event) =>
+                              updatePromoField("promoBadge", event.target.value)
+                            }
+                            placeholder="Es. -20%"
+                            type="text"
+                            value={promoConfig.promoBadge}
+                          />
+                        </label>
+                        <label className="sqm-field sqm-field--wide">
+                          <span>Messaggio promo</span>
+                          <input
+                            onChange={(event) =>
+                              updatePromoField("promoMessage", event.target.value)
+                            }
+                            placeholder="Es. Prezzi speciali sui formati più richiesti"
+                            type="text"
+                            value={promoConfig.promoMessage}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="sqm-section-heading sqm-section-heading--tight">
+                        <div>
+                          <h2>Formati promo disponibili</h2>
+                          <p>
+                            Ogni formato imposta automaticamente base e altezza nel
+                            calcolatore.
+                          </p>
+                        </div>
+                        <button className="sqm-button" onClick={addPromoFormat} type="button">
+                          Aggiungi formato
+                        </button>
+                      </div>
+
+                      <div className="sqm-range-list">
+                        {promoConfig.formats.map((format, index) => (
+                          <div className="sqm-range-row sqm-range-row--promo" key={index}>
+                            <label className="sqm-field sqm-field--label">
+                              <span>Etichetta</span>
+                              <input
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "label", event.target.value)
+                                }
+                                placeholder="Es. 300 x 100 cm"
+                                type="text"
+                                value={format.label}
+                              />
+                            </label>
+                            <label className="sqm-field">
+                              <span>Base cm</span>
+                              <input
+                                min="0"
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "base", event.target.value)
+                                }
+                                step="0.1"
+                                type="number"
+                                value={format.base || ""}
+                              />
+                            </label>
+                            <label className="sqm-field">
+                              <span>Altezza cm</span>
+                              <input
+                                min="0"
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "height", event.target.value)
+                                }
+                                step="0.1"
+                                type="number"
+                                value={format.height || ""}
+                              />
+                            </label>
+                            <button
+                              aria-label="Rimuovi formato promo"
+                              className="sqm-icon-button"
+                              onClick={() => removePromoFormat(index)}
+                              type="button"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {!promoConfig.formats.length ? (
+                        <p className="sqm-empty">Nessun formato promo configurato.</p>
+                      ) : null}
+                    </div>
+
+                    {promoErrors.length ? (
+                      <div className="sqm-errors">
+                        {promoErrors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Minimo di stampa</h2>
@@ -804,7 +1023,11 @@ export default function Index() {
                 <div className="sqm-actions">
                   <button
                     className="sqm-button sqm-button--primary"
-                    disabled={isSaving || Boolean(rangeErrors.length)}
+                    disabled={
+                      isSaving ||
+                      Boolean(rangeErrors.length) ||
+                      Boolean(promoErrors.length)
+                    }
                     type="submit"
                   >
                     {isSaving ? "Salvataggio..." : "Salva configurazione"}
@@ -1038,6 +1261,12 @@ const styles = `
     white-space: nowrap;
   }
 
+  .sqm-toggle--block {
+    display: flex;
+    margin-bottom: 14px;
+    white-space: normal;
+  }
+
   .sqm-toggle input {
     height: 18px;
     width: 18px;
@@ -1056,6 +1285,23 @@ const styles = `
     margin-bottom: 12px;
   }
 
+  .sqm-section-heading--tight {
+    margin-top: 16px;
+  }
+
+  .sqm-promo-box {
+    background: #f9fbfb;
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .sqm-promo-meta {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(120px, 0.6fr) minmax(0, 1.4fr);
+  }
+
   .sqm-range-list {
     display: grid;
     gap: 10px;
@@ -1072,9 +1318,17 @@ const styles = `
     padding: 12px;
   }
 
+  .sqm-range-row--promo {
+    grid-template-columns: minmax(180px, 1.5fr) minmax(90px, 1fr) minmax(90px, 1fr) 38px;
+  }
+
   .sqm-field {
     display: grid;
     gap: 6px;
+    min-width: 0;
+  }
+
+  .sqm-field--wide {
     min-width: 0;
   }
 
@@ -1170,6 +1424,14 @@ const styles = `
       grid-row: 1 / 3;
       justify-self: end;
     }
+
+    .sqm-range-row--promo {
+      grid-template-columns: minmax(0, 1fr) minmax(90px, 1fr) minmax(90px, 1fr) 38px;
+    }
+
+    .sqm-promo-meta {
+      grid-template-columns: 1fr;
+    }
   }
 
   @media (max-width: 900px) {
@@ -1197,6 +1459,10 @@ const styles = `
       grid-column: 2;
       grid-row: auto;
       justify-self: end;
+    }
+
+    .sqm-range-row--promo {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 `;
