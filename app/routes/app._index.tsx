@@ -1025,6 +1025,22 @@ export default function Index() {
     setProductConfigJson(stringifyProductConfig(parsed));
   };
 
+  const updatePackagingField = (
+    field: "enabled" | "costPerSqm" | "maxPanelSizeCm" | "minimumCost",
+    value: string | boolean,
+  ) => {
+    updateProductConfig((current) => ({
+      ...current,
+      packaging: {
+        ...current.packaging,
+        [field]:
+          typeof value === "boolean"
+            ? value
+            : Math.max(0, toNumber(value) ?? 0),
+      },
+    }));
+  };
+
   const sanitizedRanges = normalizeRanges(ranges);
   const sanitizedPromoConfig = normalizePromoConfig(promoConfig);
   const sanitizedProductConfigJson = buildProductAdvancedConfigFromForm(productConfig);
@@ -1802,6 +1818,77 @@ export default function Index() {
                   >
                     <div className="sqm-section-heading">
                       <div>
+                        <h2>Imballaggio</h2>
+                        <p>
+                          Aggiunge automaticamente un costo di imballaggio in base
+                          alle misure inserite, alla quantità e al costo al mq
+                          configurato per questo prodotto.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-promo-box sqm-packaging-box">
+                      <label className="sqm-toggle sqm-toggle--block">
+                        <input
+                          checked={productConfig.packaging.enabled}
+                          onChange={(event) =>
+                            updatePackagingField(
+                              "enabled",
+                              event.currentTarget.checked,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>Abilita costo imballaggio</span>
+                      </label>
+
+                      <div className="sqm-promo-meta sqm-promo-meta--triple">
+                        <label className="sqm-field">
+                          <span>Costo imballaggio al mq</span>
+                          <input
+                            min="0"
+                            onChange={(event) =>
+                              updatePackagingField("costPerSqm", event.target.value)
+                            }
+                            placeholder="Es. 2,50"
+                            step="0.01"
+                            type="number"
+                            value={productConfig.packaging.costPerSqm || ""}
+                          />
+                        </label>
+
+                        <label className="sqm-field">
+                          <span>Dimensione massima pannello per spedizione</span>
+                          <input
+                            min="1"
+                            onChange={(event) =>
+                              updatePackagingField("maxPanelSizeCm", event.target.value)
+                            }
+                            placeholder="150"
+                            step="0.1"
+                            type="number"
+                            value={productConfig.packaging.maxPanelSizeCm || ""}
+                          />
+                        </label>
+
+                        <label className="sqm-field">
+                          <span>Costo minimo imballaggio</span>
+                          <input
+                            min="0"
+                            onChange={(event) =>
+                              updatePackagingField("minimumCost", event.target.value)
+                            }
+                            placeholder="Es. 5,00"
+                            step="0.01"
+                            type="number"
+                            value={productConfig.packaging.minimumCost || ""}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="sqm-section-heading">
+                      <div>
                         <h2>Minimo di stampa</h2>
                         <p>
                           Se l area totale e inferiore a questa soglia, il prezzo
@@ -2362,6 +2449,10 @@ const styles = `
     grid-template-columns: minmax(120px, 0.6fr) minmax(0, 1.4fr);
   }
 
+  .sqm-promo-meta--triple {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .sqm-range-list {
     display: grid;
     gap: 10px;
@@ -2650,6 +2741,10 @@ const styles = `
     }
 
     .sqm-promo-meta {
+      grid-template-columns: 1fr;
+    }
+
+    .sqm-promo-meta--triple {
       grid-template-columns: 1fr;
     }
 

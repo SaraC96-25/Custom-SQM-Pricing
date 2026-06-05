@@ -60,10 +60,18 @@ export type ConditionalFee = {
   saveToProperties: boolean;
 };
 
+export type SqmPackagingConfig = {
+  enabled: boolean;
+  costPerSqm: number;
+  maxPanelSizeCm: number;
+  minimumCost: number;
+};
+
 export type SqmProductConfig = {
   enableSqmCalculator: boolean;
   optionGroups: SqmOptionGroup[];
   conditionalFees: ConditionalFee[];
+  packaging: SqmPackagingConfig;
 };
 
 export const EMPTY_PRICE_MODIFIER: PriceModifier = {
@@ -94,6 +102,12 @@ export const EMPTY_PRODUCT_CONFIG: SqmProductConfig = {
   enableSqmCalculator: true,
   optionGroups: [],
   conditionalFees: [],
+  packaging: {
+    enabled: false,
+    costPerSqm: 0,
+    maxPanelSizeCm: 150,
+    minimumCost: 0,
+  },
 };
 
 const PRICE_MODIFIER_TYPES = new Set<PriceModifierType>([
@@ -239,6 +253,7 @@ export function parseProductConfig(value: unknown): SqmProductConfig {
           .map((fee) => normalizeConditionalFee(fee))
           .filter((fee): fee is ConditionalFee => Boolean(fee))
       : [],
+    packaging: normalizePackagingConfig(source.packaging),
   };
 }
 
@@ -395,6 +410,24 @@ function normalizeConditionalRule(value: unknown): ConditionalRule | null {
   };
 }
 
+function normalizePackagingConfig(value: unknown): SqmPackagingConfig {
+  if (!value || typeof value !== "object") {
+    return { ...EMPTY_PRODUCT_CONFIG.packaging };
+  }
+
+  const source = value as Record<string, unknown>;
+
+  return {
+    enabled: source.enabled === true || source.enabled === "true",
+    costPerSqm: Math.max(0, roundDecimal(toNumber(source.costPerSqm) ?? 0)),
+    maxPanelSizeCm: Math.max(
+      1,
+      roundDecimal(toNumber(source.maxPanelSizeCm) ?? EMPTY_PRODUCT_CONFIG.packaging.maxPanelSizeCm),
+    ),
+    minimumCost: Math.max(0, roundDecimal(toNumber(source.minimumCost) ?? 0)),
+  };
+}
+
 export function validateOptionGroup(group: SqmOptionGroup, index = 0) {
   const errors: string[] = [];
   const normalized = normalizeOptionGroup(group, index);
@@ -488,6 +521,18 @@ export function validateProductConfig(value: unknown) {
       errors.push(`La commissione automatica "${fee.label || index + 1}" deve avere almeno una regola.`);
     }
   });
+
+  if (config.packaging.enabled) {
+    if (config.packaging.costPerSqm <= 0) {
+      errors.push("Il costo imballaggio al mq deve essere maggiore di zero.");
+    }
+    if (config.packaging.maxPanelSizeCm <= 0) {
+      errors.push("La dimensione massima pannello per spedizione deve essere maggiore di zero.");
+    }
+    if (config.packaging.minimumCost < 0) {
+      errors.push("Il costo minimo imballaggio non puo essere negativo.");
+    }
+  }
 
   return errors;
 }
