@@ -16,6 +16,13 @@ import {
   type PromoFormatConfig,
   type PromoFormatEntry,
 } from "./sqm-promo-config";
+import {
+  EMPTY_PRODUCT_CONFIG,
+  normalizeProductConfig,
+  stringifyProductConfig,
+  validateProductConfig,
+  type SqmProductConfig,
+} from "./sqm-product-config";
 
 type DiscountRange = {
   min_m2: number;
@@ -40,6 +47,8 @@ type ProductSummary = {
   minimumAreaM2: number;
   ranges: DiscountRange[];
   promoConfig: PromoFormatConfig;
+  productConfig: SqmProductConfig;
+  productConfigJson: string;
   variants: VariantSummary[];
 };
 
@@ -88,6 +97,9 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           promoFormatsMetafield: metafield(namespace: "custom", key: "sqm_promo_formats") {
+            value
+          }
+          productConfigMetafield: metafield(namespace: "custom", key: "sqm_product_config") {
             value
           }
           variants(first: 100) {
@@ -300,6 +312,8 @@ function mapProduct(product: any): ProductSummary {
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
     ranges: normalizeRanges(product.rangesMetafield?.value),
     promoConfig: parsePromoConfig(product.promoFormatsMetafield?.value),
+    productConfig: normalizeProductConfig(product.productConfigMetafield?.value),
+    productConfigJson: stringifyProductConfig(product.productConfigMetafield?.value),
     variants,
   };
 }
@@ -423,8 +437,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const promoConfig = normalizePromoConfig(
     parsePromoConfig(String(formData.get("promoConfig") ?? "{}")),
   );
+  const productConfigRaw = String(formData.get("productConfig") ?? "{}");
+  const productConfig = normalizeProductConfig(productConfigRaw);
   const errors = validateRanges(ranges);
   errors.push(...validatePromoConfig(promoConfig));
+  errors.push(...validateProductConfig(productConfigRaw));
 
   if (!productId) {
     errors.push("Seleziona un prodotto prima di salvare.");
@@ -464,6 +481,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_promo_formats",
           type: "json",
           value: JSON.stringify(promoConfig),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_product_config",
+          type: "json",
+          value: JSON.stringify(productConfig),
         },
       ],
     },
@@ -506,6 +530,9 @@ export default function Index() {
   const [promoConfig, setPromoConfig] = useState<PromoFormatConfig>(
     selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG },
   );
+  const [productConfigJson, setProductConfigJson] = useState(
+    selectedProduct?.productConfigJson ?? stringifyProductConfig(EMPTY_PRODUCT_CONFIG),
+  );
 
   const isSaving = fetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
@@ -514,6 +541,10 @@ export default function Index() {
     () => validatePromoConfig(normalizePromoConfig(promoConfig)),
     [promoConfig],
   );
+  const productConfigErrors = useMemo(
+    () => validateProductConfig(productConfigJson),
+    [productConfigJson],
+  );
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
@@ -521,6 +552,9 @@ export default function Index() {
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
     setPromoConfig(selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG });
+    setProductConfigJson(
+      selectedProduct?.productConfigJson ?? stringifyProductConfig(EMPTY_PRODUCT_CONFIG),
+    );
   }, [selectedProduct]);
 
   useEffect(() => {
@@ -629,6 +663,7 @@ export default function Index() {
 
   const sanitizedRanges = normalizeRanges(ranges);
   const sanitizedPromoConfig = normalizePromoConfig(promoConfig);
+  const sanitizedProductConfigJson = stringifyProductConfig(productConfigJson);
 
   return (
     <s-page heading="Custom SQM Pricing">
@@ -718,6 +753,11 @@ export default function Index() {
                   name="promoConfig"
                   type="hidden"
                   value={JSON.stringify(sanitizedPromoConfig)}
+                />
+                <input
+                  name="productConfig"
+                  type="hidden"
+                  value={sanitizedProductConfigJson}
                 />
 
                 <div className="sqm-panel__header sqm-panel__header--product">
@@ -863,6 +903,39 @@ export default function Index() {
                     {promoErrors.length ? (
                       <div className="sqm-errors">
                         {promoErrors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Configurazione avanzata prodotto</h2>
+                        <p>
+                          Definisci opzioni custom e commissioni automatiche in JSON.
+                          Lascia array vuoti per mantenere il comportamento standard.
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="sqm-field sqm-json-editor">
+                      <span>JSON configurazione</span>
+                      <textarea
+                        onBlur={() => {
+                          if (!productConfigErrors.length) {
+                            setProductConfigJson(sanitizedProductConfigJson);
+                          }
+                        }}
+                        onChange={(event) => setProductConfigJson(event.target.value)}
+                        rows={14}
+                        spellCheck={false}
+                        value={productConfigJson}
+                      />
+                    </label>
+
+                    {productConfigErrors.length ? (
+                      <div className="sqm-errors">
+                        {productConfigErrors.map((error) => (
                           <p key={error}>{error}</p>
                         ))}
                       </div>
@@ -1026,7 +1099,8 @@ export default function Index() {
                     disabled={
                       isSaving ||
                       Boolean(rangeErrors.length) ||
-                      Boolean(promoErrors.length)
+                      Boolean(promoErrors.length) ||
+                      Boolean(productConfigErrors.length)
                     }
                     type="submit"
                   >
@@ -1172,7 +1246,8 @@ const styles = `
   }
 
   .sqm-search input,
-  .sqm-field input {
+  .sqm-field input,
+  .sqm-field textarea {
     border: 1px solid #c9cccf;
     border-radius: 6px;
     box-sizing: border-box;
@@ -1183,10 +1258,24 @@ const styles = `
   }
 
   .sqm-field input:focus,
+  .sqm-field textarea:focus,
   .sqm-search input:focus {
     border-color: #008060;
     box-shadow: 0 0 0 1px #008060;
     outline: none;
+  }
+
+  .sqm-field textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    min-height: 220px;
+    padding: 10px 12px;
+    resize: vertical;
+  }
+
+  .sqm-json-editor {
+    margin-bottom: 18px;
   }
 
   .sqm-search button,
