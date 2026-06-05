@@ -82,6 +82,8 @@ type CartTransformStatus = {
   message?: string;
 };
 
+type ConfigTab = "promo" | "options" | "calculation";
+
 const EMPTY_RANGE: DiscountRange = {
   min_m2: 0,
   max_m2: null,
@@ -652,6 +654,7 @@ export default function Index() {
   const [editingOptionGroupIndex, setEditingOptionGroupIndex] = useState<number | null>(
     null,
   );
+  const [activeTab, setActiveTab] = useState<ConfigTab>("promo");
 
   const isSaving = fetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
@@ -683,6 +686,7 @@ export default function Index() {
     setIsVariantMenuOpen(false);
     setDraftOptionGroup(null);
     setEditingOptionGroupIndex(null);
+    setActiveTab("promo");
   }, [selectedProduct]);
 
   useEffect(() => {
@@ -1124,23 +1128,55 @@ export default function Index() {
                   <div>
                     <p className="sqm-kicker">Prodotto selezionato</p>
                     <h1>{selectedProduct.title}</h1>
-                    <p className="sqm-muted">
-                      Base prezzo dalla variante Shopify selezionata; area calcolata
-                      con base, altezza e quantity selector.
-                    </p>
                   </div>
-                  <label className="sqm-toggle">
-                    <input
-                      checked={enabled}
-                      onChange={(event) => setEnabled(event.currentTarget.checked)}
-                      type="checkbox"
-                    />
-                    <span>{enabled ? "Attivo" : "Disattivo"}</span>
-                  </label>
+                  <div className="sqm-product-status">
+                    <span className="sqm-product-status__label">Stato:</span>
+                    <label className="sqm-toggle">
+                      <span>Attivato</span>
+                      <input
+                        checked={enabled}
+                        onChange={(event) => setEnabled(event.currentTarget.checked)}
+                        type="checkbox"
+                      />
+                    </label>
+                  </div>
                 </div>
 
-                <div className="sqm-section-grid">
-                  <section>
+                <div className="sqm-tabs" role="tablist" aria-label="Configurazione prodotto">
+                  <button
+                    aria-selected={activeTab === "promo"}
+                    className={`sqm-tab ${activeTab === "promo" ? "is-active" : ""}`}
+                    onClick={() => setActiveTab("promo")}
+                    role="tab"
+                    type="button"
+                  >
+                    Formati promo
+                  </button>
+                  <button
+                    aria-selected={activeTab === "options"}
+                    className={`sqm-tab ${activeTab === "options" ? "is-active" : ""}`}
+                    onClick={() => setActiveTab("options")}
+                    role="tab"
+                    type="button"
+                  >
+                    Opzioni prodotto
+                  </button>
+                  <button
+                    aria-selected={activeTab === "calculation"}
+                    className={`sqm-tab ${activeTab === "calculation" ? "is-active" : ""}`}
+                    onClick={() => setActiveTab("calculation")}
+                    role="tab"
+                    type="button"
+                  >
+                    Calcolo Mq
+                  </button>
+                </div>
+
+                <div className="sqm-tab-panels">
+                  <section
+                    className={`sqm-tab-panel ${activeTab === "promo" ? "is-active" : ""}`}
+                    hidden={activeTab !== "promo"}
+                  >
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Formati promo</h2>
@@ -1267,7 +1303,12 @@ export default function Index() {
                         ))}
                       </div>
                     ) : null}
+                  </section>
 
+                  <section
+                    className={`sqm-tab-panel ${activeTab === "options" ? "is-active" : ""}`}
+                    hidden={activeTab !== "options"}
+                  >
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Opzioni prodotto</h2>
@@ -1753,7 +1794,12 @@ export default function Index() {
                         ))}
                       </div>
                     ) : null}
+                  </section>
 
+                  <section
+                    className={`sqm-tab-panel ${activeTab === "calculation" ? "is-active" : ""}`}
+                    hidden={activeTab !== "calculation"}
+                  >
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Minimo di stampa</h2>
@@ -1879,6 +1925,23 @@ export default function Index() {
                       </div>
                     ) : null}
 
+                    <section className="sqm-variants">
+                      <h2>Prezzo base al mq</h2>
+                      <p className="sqm-muted">
+                        Il calcolatore usa il prezzo della variante Shopify corrente
+                        come €/mq. La quantità viene presa dal quantity selector del
+                        tema.
+                      </p>
+                      <div className="sqm-variant-grid">
+                        {selectedProduct.variants.map((variant) => (
+                          <div className="sqm-variant" key={variant.id}>
+                            <span>{variant.title}</span>
+                            <strong>{formatCurrency(variant.price)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
                     {actionData?.errors?.length ? (
                       <div className="sqm-errors">
                         {actionData.errors.map((error) => (
@@ -1886,23 +1949,6 @@ export default function Index() {
                         ))}
                       </div>
                     ) : null}
-                  </section>
-
-                  <section className="sqm-variants">
-                    <h2>Prezzo base al mq</h2>
-                    <p className="sqm-muted">
-                      Il calcolatore usa il prezzo della variante Shopify corrente
-                      come €/mq. La quantità viene presa dal quantity selector del
-                      tema.
-                    </p>
-                    <div className="sqm-variant-grid">
-                      {selectedProduct.variants.map((variant) => (
-                        <div className="sqm-variant" key={variant.id}>
-                          <span>{variant.title}</span>
-                          <strong>{formatCurrency(variant.price)}</strong>
-                        </div>
-                      ))}
-                    </div>
                   </section>
                 </div>
 
@@ -2005,6 +2051,18 @@ const styles = `
 
   .sqm-minimum-box {
     margin-bottom: 18px;
+  }
+
+  .sqm-product-status {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+  }
+
+  .sqm-product-status__label {
+    color: #6d7175;
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .sqm-kicker {
@@ -2189,9 +2247,42 @@ const styles = `
     width: 18px;
   }
 
-  .sqm-section-grid {
+  .sqm-tabs {
     display: grid;
-    gap: 24px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .sqm-tab {
+    min-height: 44px;
+    border: 1px solid #dfe3e8;
+    border-radius: 10px;
+    background: #f6f7f8;
+    color: #202223;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 14px;
+    text-align: center;
+  }
+
+  .sqm-tab.is-active {
+    border-color: #008060;
+    background: #edf8f1;
+    color: #008060;
+  }
+
+  .sqm-tab-panels {
+    display: grid;
+    gap: 16px;
+  }
+
+  .sqm-tab-panel {
+    background: #ffffff;
+    border: 1px solid #dfe3e8;
+    border-radius: 10px;
+    padding: 16px;
   }
 
   .sqm-section-heading {
@@ -2436,6 +2527,18 @@ const styles = `
     color: #008060;
   }
 
+  .sqm-variants {
+    margin-top: 18px;
+  }
+
+  .sqm-variants h2 {
+    margin-bottom: 0;
+  }
+
+  .sqm-variants .sqm-muted {
+    margin-bottom: 12px;
+  }
+
   .sqm-field span {
     color: #6d7175;
     font-size: 11px;
@@ -2562,10 +2665,18 @@ const styles = `
       display: grid;
     }
 
+    .sqm-product-status {
+      justify-items: start;
+    }
+
     .sqm-variant-menu__popover {
       left: 0;
       right: auto;
       width: min(100%, 320px);
+    }
+
+    .sqm-tabs {
+      grid-template-columns: 1fr;
     }
 
     .sqm-option-card__header,
