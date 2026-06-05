@@ -2015,6 +2015,7 @@ const styles = `
     border-radius: 8px;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
     min-width: 0;
+    overflow: visible;
     padding: 18px;
   }
 
@@ -2282,6 +2283,7 @@ const styles = `
     background: #ffffff;
     border: 1px solid #dfe3e8;
     border-radius: 10px;
+    overflow: visible;
     padding: 16px;
   }
 
@@ -2309,6 +2311,9 @@ const styles = `
     width: 280px;
     display: grid;
     gap: 6px;
+    max-height: min(360px, calc(100vh - 180px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
     border: 1px solid #dfe3e8;
     border-radius: 10px;
