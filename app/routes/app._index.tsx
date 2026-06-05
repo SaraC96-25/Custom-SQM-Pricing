@@ -1818,77 +1818,6 @@ export default function Index() {
                   >
                     <div className="sqm-section-heading">
                       <div>
-                        <h2>Imballaggio</h2>
-                        <p>
-                          Aggiunge automaticamente un costo di imballaggio in base
-                          alle misure inserite, alla quantità e al costo al mq
-                          configurato per questo prodotto.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="sqm-promo-box sqm-packaging-box">
-                      <label className="sqm-toggle sqm-toggle--block">
-                        <input
-                          checked={productConfig.packaging.enabled}
-                          onChange={(event) =>
-                            updatePackagingField(
-                              "enabled",
-                              event.currentTarget.checked,
-                            )
-                          }
-                          type="checkbox"
-                        />
-                        <span>Abilita costo imballaggio</span>
-                      </label>
-
-                      <div className="sqm-promo-meta sqm-promo-meta--triple">
-                        <label className="sqm-field">
-                          <span>Costo imballaggio al mq</span>
-                          <input
-                            min="0"
-                            onChange={(event) =>
-                              updatePackagingField("costPerSqm", event.target.value)
-                            }
-                            placeholder="Es. 2,50"
-                            step="0.01"
-                            type="number"
-                            value={productConfig.packaging.costPerSqm || ""}
-                          />
-                        </label>
-
-                        <label className="sqm-field">
-                          <span>Dimensione massima pannello per spedizione</span>
-                          <input
-                            min="1"
-                            onChange={(event) =>
-                              updatePackagingField("maxPanelSizeCm", event.target.value)
-                            }
-                            placeholder="150"
-                            step="0.1"
-                            type="number"
-                            value={productConfig.packaging.maxPanelSizeCm || ""}
-                          />
-                        </label>
-
-                        <label className="sqm-field">
-                          <span>Costo minimo imballaggio</span>
-                          <input
-                            min="0"
-                            onChange={(event) =>
-                              updatePackagingField("minimumCost", event.target.value)
-                            }
-                            placeholder="Es. 5,00"
-                            step="0.01"
-                            type="number"
-                            value={productConfig.packaging.minimumCost || ""}
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="sqm-section-heading">
-                      <div>
                         <h2>Minimo di stampa</h2>
                         <p>
                           Se l area totale e inferiore a questa soglia, il prezzo
@@ -2029,6 +1958,77 @@ export default function Index() {
                       </div>
                     </section>
 
+                    <div className="sqm-section-heading sqm-section-heading--spaced">
+                      <div>
+                        <h2>Imballaggio</h2>
+                        <p>
+                          Aggiunge automaticamente un costo di imballaggio in base
+                          alle misure inserite, alla quantità e al costo al mq
+                          configurato per questo prodotto.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-promo-box sqm-packaging-box">
+                      <label className="sqm-toggle sqm-toggle--block">
+                        <input
+                          checked={productConfig.packaging.enabled}
+                          onChange={(event) =>
+                            updatePackagingField(
+                              "enabled",
+                              event.currentTarget.checked,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>Abilita costo imballaggio</span>
+                      </label>
+
+                      <div className="sqm-promo-meta sqm-promo-meta--triple">
+                        <label className="sqm-field">
+                          <span>Costo imballaggio al mq</span>
+                          <input
+                            min="0"
+                            onChange={(event) =>
+                              updatePackagingField("costPerSqm", event.target.value)
+                            }
+                            placeholder="Es. 2,50"
+                            step="0.01"
+                            type="number"
+                            value={productConfig.packaging.costPerSqm || ""}
+                          />
+                        </label>
+
+                        <label className="sqm-field">
+                          <span>Dimensione massima pannello per spedizione</span>
+                          <input
+                            min="1"
+                            onChange={(event) =>
+                              updatePackagingField("maxPanelSizeCm", event.target.value)
+                            }
+                            placeholder="150"
+                            step="0.1"
+                            type="number"
+                            value={productConfig.packaging.maxPanelSizeCm || ""}
+                          />
+                        </label>
+
+                        <label className="sqm-field">
+                          <span>Costo minimo imballaggio</span>
+                          <input
+                            min="0"
+                            onChange={(event) =>
+                              updatePackagingField("minimumCost", event.target.value)
+                            }
+                            placeholder="Es. 5,00"
+                            step="0.01"
+                            type="number"
+                            value={productConfig.packaging.minimumCost || ""}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
                     {actionData?.errors?.length ? (
                       <div className="sqm-errors">
                         {actionData.errors.map((error) => (
@@ -2081,6 +2081,19 @@ function formatCurrency(value: string) {
 }
 
 const styles = `
+  :root {
+    --sqm-green: #089225;
+    --sqm-green-dark: #066e1c;
+    --sqm-green-soft: #eff9f1;
+    --sqm-green-soft-2: #f8fcf9;
+    --sqm-green-soft-3: #f4fbf6;
+    --sqm-ink: #212529;
+    --sqm-muted: #5f6b76;
+    --sqm-line: #dfe8e2;
+    --sqm-shadow: 0 18px 40px rgba(33, 37, 41, 0.08);
+    --sqm-shadow-soft: 0 12px 28px rgba(33, 37, 41, 0.05);
+  }
+
   .sqm-layout {
     display: grid;
     grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
@@ -2097,17 +2110,17 @@ const styles = `
   }
 
   .sqm-panel {
-    background: #ffffff;
-    border: 1px solid #dfe3e8;
-    border-radius: 8px;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdfb 100%);
+    border: 1px solid var(--sqm-line);
+    border-radius: 22px;
+    box-shadow: var(--sqm-shadow);
     min-width: 0;
     overflow: visible;
-    padding: 18px;
+    padding: 22px;
   }
 
   .sqm-panel--compact {
-    padding: 16px;
+    padding: 20px;
   }
 
   .sqm-panel__header {
@@ -2115,7 +2128,7 @@ const styles = `
     justify-content: space-between;
     gap: 16px;
     align-items: flex-start;
-    margin-bottom: 18px;
+    margin-bottom: 20px;
   }
 
   .sqm-panel__header h1,
@@ -2123,7 +2136,7 @@ const styles = `
   .sqm-section-heading h2,
   .sqm-variants h2 {
     margin: 0;
-    color: #202223;
+    color: var(--sqm-ink);
     line-height: 1.2;
   }
 
@@ -2145,34 +2158,41 @@ const styles = `
     display: grid;
     gap: 8px;
     justify-items: end;
+    padding: 10px 12px;
+    border: 1px solid var(--sqm-line);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, var(--sqm-green-soft-3) 100%);
   }
 
   .sqm-product-status__label {
-    color: #6d7175;
+    color: var(--sqm-muted);
     font-size: 12px;
     font-weight: 700;
   }
 
   .sqm-kicker {
     margin: 0 0 4px;
-    color: #6d7175;
+    color: var(--sqm-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .sqm-muted,
   .sqm-section-heading p,
   .sqm-empty {
-    color: #6d7175;
+    color: var(--sqm-muted);
     margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
   }
 
   .sqm-counter {
     align-items: center;
-    background: #eaf5f2;
+    background: var(--sqm-green-soft);
     border-radius: 999px;
-    color: #006c52;
+    color: var(--sqm-green-dark);
     display: inline-flex;
     font-size: 12px;
     font-weight: 700;
@@ -2209,21 +2229,24 @@ const styles = `
   .sqm-field input,
   .sqm-field select,
   .sqm-field textarea {
-    border: 1px solid #c9cccf;
-    border-radius: 6px;
+    border: 1px solid #ced8d2;
+    border-radius: 10px;
     box-sizing: border-box;
     font: inherit;
-    min-height: 36px;
-    padding: 7px 10px;
+    min-height: 44px;
+    padding: 9px 12px;
     width: 100%;
+    background: #fcfefd;
+    color: var(--sqm-ink);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
   }
 
   .sqm-field input:focus,
   .sqm-field select:focus,
   .sqm-field textarea:focus,
   .sqm-search input:focus {
-    border-color: #008060;
-    box-shadow: 0 0 0 1px #008060;
+    border-color: var(--sqm-green);
+    box-shadow: 0 0 0 3px rgba(8, 146, 37, 0.12);
     outline: none;
   }
 
@@ -2255,19 +2278,34 @@ const styles = `
   .sqm-search button,
   .sqm-button {
     background: #ffffff;
-    border: 1px solid #8c9196;
-    border-radius: 6px;
-    color: #202223;
+    border: 1px solid #b9c8bf;
+    border-radius: 10px;
+    color: var(--sqm-ink);
     cursor: pointer;
     font: inherit;
     font-weight: 650;
-    min-height: 36px;
-    padding: 7px 12px;
+    min-height: 42px;
+    padding: 8px 14px;
+    transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
   }
 
   .sqm-button--primary {
-    background: #008060;
-    border-color: #008060;
+    background: linear-gradient(180deg, var(--sqm-green) 0%, var(--sqm-green-dark) 100%);
+    border-color: var(--sqm-green);
+    color: #ffffff;
+    box-shadow: 0 12px 24px rgba(8, 146, 37, 0.16);
+  }
+
+  .sqm-button:hover,
+  .sqm-search button:hover {
+    border-color: var(--sqm-green);
+    background: var(--sqm-green-soft-3);
+    box-shadow: var(--sqm-shadow-soft);
+  }
+
+  .sqm-button--primary:hover {
+    background: linear-gradient(180deg, #0aa32a 0%, var(--sqm-green) 100%);
     color: #ffffff;
   }
 
@@ -2284,14 +2322,17 @@ const styles = `
   }
 
   .sqm-product {
-    border: 1px solid #dfe3e8;
-    border-radius: 6px;
-    color: #202223;
+    border: 1px solid var(--sqm-line);
+    border-radius: 16px;
+    color: var(--sqm-ink);
     display: flex;
     gap: 10px;
     justify-content: space-between;
-    padding: 10px;
+    padding: 14px;
     text-decoration: none;
+    background: #ffffff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+    transition: border-color .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease;
   }
 
   .sqm-product strong,
@@ -2300,20 +2341,22 @@ const styles = `
   }
 
   .sqm-product small {
-    color: #6d7175;
+    color: var(--sqm-muted);
     margin-top: 2px;
   }
 
   .sqm-product em {
-    color: #008060;
+    color: var(--sqm-green);
     font-size: 12px;
     font-style: normal;
     font-weight: 700;
   }
 
   .sqm-product.is-selected {
-    background: #edf7f4;
-    border-color: #008060;
+    background: var(--sqm-green-soft);
+    border-color: var(--sqm-green);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(8, 146, 37, 0.1);
   }
 
   .sqm-toggle {
@@ -2339,26 +2382,32 @@ const styles = `
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
+    padding: 6px;
+    border: 1px solid var(--sqm-line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #fcfefd 0%, #f6fbf7 100%);
   }
 
   .sqm-tab {
-    min-height: 44px;
-    border: 1px solid #dfe3e8;
-    border-radius: 10px;
-    background: #f6f7f8;
-    color: #202223;
+    min-height: 48px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--sqm-ink);
     cursor: pointer;
     font: inherit;
     font-weight: 700;
     padding: 10px 14px;
     text-align: center;
+    transition: border-color .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease;
   }
 
   .sqm-tab.is-active {
-    border-color: #008060;
-    background: #edf8f1;
-    color: #008060;
+    border-color: var(--sqm-green);
+    background: linear-gradient(180deg, #ffffff 0%, var(--sqm-green-soft) 100%);
+    color: var(--sqm-green-dark);
+    box-shadow: 0 10px 22px rgba(8, 146, 37, 0.12);
   }
 
   .sqm-tab-panels {
@@ -2367,11 +2416,12 @@ const styles = `
   }
 
   .sqm-tab-panel {
-    background: #ffffff;
-    border: 1px solid #dfe3e8;
-    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff 0%, var(--sqm-green-soft-2) 100%);
+    border: 1px solid var(--sqm-line);
+    border-radius: 18px;
     overflow: visible;
-    padding: 16px;
+    padding: 20px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
   }
 
   .sqm-section-heading {
@@ -2384,6 +2434,10 @@ const styles = `
 
   .sqm-section-heading--tight {
     margin-top: 16px;
+  }
+
+  .sqm-section-heading--spaced {
+    margin-top: 22px;
   }
 
   .sqm-variant-menu {
@@ -2402,8 +2456,8 @@ const styles = `
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 8px;
-    border: 1px solid #dfe3e8;
-    border-radius: 10px;
+    border: 1px solid var(--sqm-line);
+    border-radius: 14px;
     background: #ffffff;
     box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
   }
@@ -2412,8 +2466,8 @@ const styles = `
     width: 100%;
     text-align: left;
     background: #ffffff;
-    border: 1px solid #e4e7eb;
-    border-radius: 8px;
+    border: 1px solid #d9e2dd;
+    border-radius: 10px;
     padding: 10px 12px;
     cursor: pointer;
     display: grid;
@@ -2421,26 +2475,32 @@ const styles = `
   }
 
   .sqm-variant-menu__item strong {
-    color: #202223;
+    color: var(--sqm-ink);
     font-size: 13px;
   }
 
   .sqm-variant-menu__item span {
-    color: #6d7175;
+    color: var(--sqm-muted);
     font-size: 12px;
     line-height: 1.35;
   }
 
   .sqm-variant-menu__item:hover {
-    border-color: #008060;
-    background: #edf8f1;
+    border-color: var(--sqm-green);
+    background: var(--sqm-green-soft);
   }
 
   .sqm-promo-box {
-    background: #f9fbfb;
-    border: 1px solid #dfe3e8;
-    border-radius: 8px;
-    padding: 14px;
+    background: #ffffff;
+    border: 1px solid var(--sqm-line);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sqm-shadow-soft);
+  }
+
+  .sqm-packaging-box {
+    background: linear-gradient(180deg, #ffffff 0%, var(--sqm-green-soft-2) 100%);
+    border-color: #cfe5d5;
   }
 
   .sqm-promo-meta {
@@ -2460,13 +2520,13 @@ const styles = `
 
   .sqm-range-row {
     align-items: end;
-    background: #fbfbfc;
-    border: 1px solid #dfe3e8;
-    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdfb 100%);
+    border: 1px solid var(--sqm-line);
+    border-radius: 14px;
     display: grid;
     gap: 10px;
     grid-template-columns: minmax(82px, 1fr) minmax(82px, 1fr) minmax(82px, 0.8fr) minmax(140px, 1.45fr) 38px;
-    padding: 12px;
+    padding: 14px;
   }
 
   .sqm-range-row--promo {
@@ -2490,15 +2550,16 @@ const styles = `
   }
 
   .sqm-option-card {
-    background: #f9fbfb;
-    border: 1px solid #dfe3e8;
-    border-radius: 10px;
-    padding: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdfb 100%);
+    border: 1px solid var(--sqm-line);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: var(--sqm-shadow-soft);
   }
 
   .sqm-option-card--draft {
-    border-color: #008060;
-    box-shadow: 0 0 0 1px rgba(0, 128, 96, 0.15);
+    border-color: var(--sqm-green);
+    box-shadow: 0 0 0 1px rgba(8, 146, 37, 0.12), 0 16px 34px rgba(8, 146, 37, 0.08);
   }
 
   .sqm-option-card__header,
@@ -2512,12 +2573,12 @@ const styles = `
 
   .sqm-option-card__header h3,
   .sqm-option-value__header strong {
-    color: #202223;
+    color: var(--sqm-ink);
     margin: 0;
   }
 
   .sqm-option-card__header p {
-    color: #6d7175;
+    color: var(--sqm-muted);
     margin: 4px 0 0;
   }
 
@@ -2567,21 +2628,21 @@ const styles = `
 
   .sqm-option-value {
     background: #ffffff;
-    border: 1px solid #e4e7eb;
-    border-radius: 8px;
-    padding: 12px;
+    border: 1px solid #e1eae4;
+    border-radius: 14px;
+    padding: 14px;
   }
 
   .sqm-option-preview {
-    background: #ffffff;
-    border: 1px dashed #cfd6dc;
-    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, var(--sqm-green-soft-3) 100%);
+    border: 1px dashed #c9d8cf;
+    border-radius: 14px;
     margin-top: 14px;
-    padding: 12px;
+    padding: 14px;
   }
 
   .sqm-option-preview__title {
-    color: #6d7175;
+    color: var(--sqm-muted);
     font-size: 11px;
     font-weight: 700;
     margin-bottom: 8px;
@@ -2590,7 +2651,7 @@ const styles = `
 
   .sqm-option-preview__label {
     align-items: center;
-    color: #202223;
+    color: var(--sqm-ink);
     display: flex;
     gap: 8px;
   }
@@ -2619,8 +2680,8 @@ const styles = `
 
   .sqm-option-preview__chip.is-active {
     background: #edf8f1;
-    border-color: #008060;
-    color: #008060;
+    border-color: var(--sqm-green);
+    color: var(--sqm-green);
   }
 
   .sqm-variants {
@@ -2636,22 +2697,23 @@ const styles = `
   }
 
   .sqm-field span {
-    color: #6d7175;
+    color: var(--sqm-muted);
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
   }
 
   .sqm-icon-button {
     background: #ffffff;
-    border: 1px solid #c9cccf;
-    border-radius: 6px;
+    border: 1px solid #d3ddd7;
+    border-radius: 10px;
     cursor: pointer;
     font-size: 18px;
-    height: 36px;
+    height: 38px;
     line-height: 1;
-    width: 36px;
+    width: 38px;
+    transition: border-color .18s ease, background-color .18s ease, color .18s ease;
   }
 
   .sqm-icon-button:hover {
@@ -2663,10 +2725,10 @@ const styles = `
   .sqm-errors {
     background: #fff4f4;
     border: 1px solid #fed3d1;
-    border-radius: 8px;
+    border-radius: 12px;
     color: #8e1f0b;
     margin-top: 12px;
-    padding: 10px 12px;
+    padding: 12px 14px;
   }
 
   .sqm-errors p {
@@ -2685,9 +2747,10 @@ const styles = `
   }
 
   .sqm-variant {
-    border: 1px solid #dfe3e8;
-    border-radius: 6px;
-    padding: 10px;
+    border: 1px solid var(--sqm-line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdfb 100%);
   }
 
   .sqm-variant span,
@@ -2701,7 +2764,7 @@ const styles = `
   }
 
   .sqm-actions {
-    border-top: 1px solid #dfe3e8;
+    border-top: 1px solid var(--sqm-line);
     display: flex;
     justify-content: flex-end;
     margin-top: 20px;
