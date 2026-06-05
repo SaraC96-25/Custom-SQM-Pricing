@@ -17,10 +17,21 @@ import {
   type PromoFormatEntry,
 } from "./sqm-promo-config";
 import {
+  buildProductAdvancedConfigFromForm,
+  createEmptyOption,
+  createEmptyOptionGroup,
   EMPTY_PRODUCT_CONFIG,
+  formatPriceModifierLabel,
   normalizeProductConfig,
+  normalizeId,
+  parseProductAdvancedConfig,
   stringifyProductConfig,
+  validateOptionGroup,
   validateProductConfig,
+  type OptionGroupType,
+  type PriceModifierType,
+  type SqmOption,
+  type SqmOptionGroup,
   type SqmProductConfig,
 } from "./sqm-product-config";
 
@@ -77,6 +88,61 @@ const EMPTY_RANGE: DiscountRange = {
   discount_percent: 0,
   label: "",
 };
+
+const OPTION_TYPE_OPTIONS: Array<{ label: string; value: OptionGroupType }> = [
+  { label: "Bottoni", value: "button" },
+  { label: "Radio", value: "radio" },
+  { label: "Dropdown", value: "dropdown" },
+];
+
+const ICON_OPTIONS = [
+  { label: "Nessuna", value: "" },
+  { label: "Sparkles", value: "sparkles" },
+  { label: "Layers", value: "layers" },
+  { label: "Droplets", value: "droplets" },
+  { label: "Image", value: "image" },
+  { label: "Ruler", value: "ruler" },
+  { label: "Print", value: "print" },
+];
+
+const PRICE_TYPE_OPTIONS: Array<{ label: string; value: PriceModifierType }> = [
+  { label: "Nessuna modifica", value: "none" },
+  { label: "Extra per mq", value: "per_sqm" },
+  { label: "Extra fisso ordine", value: "fixed_order" },
+  { label: "Extra per pezzo", value: "fixed_piece" },
+  { label: "Percentuale", value: "percentage" },
+  { label: "Moltiplicatore", value: "multiplier" },
+];
+
+function cloneOptionGroup(group: SqmOptionGroup, index: number) {
+  const nextIdBase = normalizeId(`${group.id || group.label || "option"}_${index + 1}`);
+  return normalizeProductConfig({
+    enableSqmCalculator: true,
+    optionGroups: [
+      {
+        ...group,
+        id: nextIdBase || `option_group_${index + 1}`,
+        label: group.label ? `${group.label} copia` : "",
+      },
+    ],
+    conditionalFees: [],
+  }).optionGroups[0];
+}
+
+function sanitizeOptionGroup(group: SqmOptionGroup, index: number) {
+  const normalized = normalizeProductConfig({
+    enableSqmCalculator: true,
+    optionGroups: [group],
+    conditionalFees: [],
+  }).optionGroups[0];
+
+  return (
+    normalized ?? {
+      ...createEmptyOptionGroup(group.type, index),
+      ...group,
+    }
+  );
+}
 
 const PRODUCTS_QUERY = `#graphql
   query CustomSqmPricingProducts($query: String) {
@@ -530,8 +596,12 @@ export default function Index() {
   const [promoConfig, setPromoConfig] = useState<PromoFormatConfig>(
     selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG },
   );
+  const [productConfig, setProductConfig] = useState<SqmProductConfig>(
+    selectedProduct?.productConfig ?? { ...EMPTY_PRODUCT_CONFIG },
+  );
   const [productConfigJson, setProductConfigJson] = useState(
-    selectedProduct?.productConfigJson ?? stringifyProductConfig(EMPTY_PRODUCT_CONFIG),
+    selectedProduct?.productConfigJson ??
+      stringifyProductConfig(selectedProduct?.productConfig ?? EMPTY_PRODUCT_CONFIG),
   );
 
   const isSaving = fetcher.state !== "idle";
@@ -542,6 +612,10 @@ export default function Index() {
     [promoConfig],
   );
   const productConfigErrors = useMemo(
+    () => validateProductConfig(productConfig),
+    [productConfig],
+  );
+  const productConfigJsonErrors = useMemo(
     () => validateProductConfig(productConfigJson),
     [productConfigJson],
   );
@@ -552,8 +626,10 @@ export default function Index() {
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
     setPromoConfig(selectedProduct?.promoConfig ?? { ...EMPTY_PROMO_CONFIG });
+    setProductConfig(selectedProduct?.productConfig ?? { ...EMPTY_PRODUCT_CONFIG });
     setProductConfigJson(
-      selectedProduct?.productConfigJson ?? stringifyProductConfig(EMPTY_PRODUCT_CONFIG),
+      selectedProduct?.productConfigJson ??
+        stringifyProductConfig(selectedProduct?.productConfig ?? EMPTY_PRODUCT_CONFIG),
     );
   }, [selectedProduct]);
 
@@ -661,9 +737,236 @@ export default function Index() {
     }));
   };
 
+  const updateProductConfig = (
+    updater: SqmProductConfig | ((current: SqmProductConfig) => SqmProductConfig),
+  ) => {
+    setProductConfig((current) => {
+      const next =
+        typeof updater === "function"
+          ? (updater as (value: SqmProductConfig) => SqmProductConfig)(current)
+          : updater;
+      const normalized = normalizeProductConfig(next);
+      setProductConfigJson(stringifyProductConfig(normalized));
+      return normalized;
+    });
+  };
+
+  const addOptionGroup = (type: OptionGroupType) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: [
+        ...current.optionGroups,
+        createEmptyOptionGroup(type, current.optionGroups.length),
+      ],
+    }));
+  };
+
+  const updateOptionGroup = (
+    index: number,
+    field: keyof SqmOptionGroup,
+    value: string | boolean,
+  ) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, groupIndex) => {
+        if (groupIndex !== index) return group;
+
+        const nextGroup: SqmOptionGroup = {
+          ...group,
+          [field]: value,
+        } as SqmOptionGroup;
+
+        if (field === "label") {
+          nextGroup.id = normalizeId(String(value)) || group.id || `option_group_${index + 1}`;
+        }
+
+        if (field === "type" && value === "checkbox") {
+          nextGroup.required = false;
+        }
+
+        return sanitizeOptionGroup(nextGroup, index);
+      }),
+    }));
+  };
+
+  const duplicateOptionGroup = (index: number) => {
+    updateProductConfig((current) => {
+      const source = current.optionGroups[index];
+      if (!source) return current;
+      const duplicate = cloneOptionGroup(source, current.optionGroups.length);
+      const next = [...current.optionGroups];
+      next.splice(index + 1, 0, duplicate);
+      return { ...current, optionGroups: next };
+    });
+  };
+
+  const removeOptionGroup = (index: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.filter((_, groupIndex) => groupIndex !== index),
+    }));
+  };
+
+  const moveOptionGroup = (index: number, direction: -1 | 1) => {
+    updateProductConfig((current) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= current.optionGroups.length) return current;
+      const next = [...current.optionGroups];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return { ...current, optionGroups: next };
+    });
+  };
+
+  const addOptionValue = (groupIndex: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) => {
+        if (index !== groupIndex) return group;
+        const nextOption = createEmptyOption(group.options.length);
+        const options = [...group.options, nextOption];
+        return sanitizeOptionGroup(
+          {
+            ...group,
+            defaultValue:
+              group.defaultValue || (group.type === "checkbox" ? "" : nextOption.value),
+            options,
+          },
+          index,
+        );
+      }),
+    }));
+  };
+
+  const updateOptionValue = (
+    groupIndex: number,
+    optionIndex: number,
+    field: keyof SqmOption,
+    value: string,
+  ) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) => {
+        if (index !== groupIndex) return group;
+
+        const options = group.options.map((option, currentOptionIndex) => {
+          if (currentOptionIndex !== optionIndex) return option;
+
+          const nextOption: SqmOption = {
+            ...option,
+            [field]: value,
+          } as SqmOption;
+
+          if (field === "label" && (!option.value || option.value === createEmptyOption(optionIndex).value)) {
+            nextOption.value =
+              normalizeId(value).replace(/_/g, "-") || `option-${optionIndex + 1}`;
+          }
+
+          return nextOption;
+        });
+
+        const nextDefaultValue =
+          options.some((option) => option.value === group.defaultValue)
+            ? group.defaultValue
+            : options[0]?.value ?? "";
+
+        return sanitizeOptionGroup(
+          {
+            ...group,
+            defaultValue: nextDefaultValue,
+            options,
+          },
+          index,
+        );
+      }),
+    }));
+  };
+
+  const updateOptionPriceModifier = (
+    groupIndex: number,
+    optionIndex: number,
+    field: "type" | "amount" | "target" | "frontendLabel",
+    value: string,
+  ) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) => {
+        if (index !== groupIndex) return group;
+
+        const options = group.options.map((option, currentOptionIndex) => {
+          if (currentOptionIndex !== optionIndex) return option;
+          const currentModifier = option.priceModifier ?? { type: "none", amount: 0 };
+          return {
+            ...option,
+            priceModifier: {
+              ...currentModifier,
+              [field]:
+                field === "amount"
+                  ? Number(value.replace(",", ".")) || 0
+                  : value,
+            },
+          };
+        });
+
+        return sanitizeOptionGroup({ ...group, options }, index);
+      }),
+    }));
+  };
+
+  const setOptionDefault = (groupIndex: number, value: string) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) =>
+        index === groupIndex ? sanitizeOptionGroup({ ...group, defaultValue: value }, index) : group,
+      ),
+    }));
+  };
+
+  const duplicateOptionValue = (groupIndex: number, optionIndex: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) => {
+        if (index !== groupIndex) return group;
+        const source = group.options[optionIndex];
+        if (!source) return group;
+        const duplicate: SqmOption = {
+          ...source,
+          value: `${source.value}-copy-${group.options.length + 1}`,
+          label: source.label ? `${source.label} copia` : "",
+        };
+        const options = [...group.options];
+        options.splice(optionIndex + 1, 0, duplicate);
+        return sanitizeOptionGroup({ ...group, options }, index);
+      }),
+    }));
+  };
+
+  const removeOptionValue = (groupIndex: number, optionIndex: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionGroups: current.optionGroups.map((group, index) => {
+        if (index !== groupIndex) return group;
+        const options = group.options.filter((_, currentOptionIndex) => currentOptionIndex !== optionIndex);
+        if (!options.length) {
+          options.push(createEmptyOption(0));
+        }
+        const defaultValue = options.some((option) => option.value === group.defaultValue)
+          ? group.defaultValue
+          : options[0].value;
+        return sanitizeOptionGroup({ ...group, options, defaultValue }, index);
+      }),
+    }));
+  };
+
+  const applyAdvancedJson = () => {
+    const parsed = parseProductAdvancedConfig(productConfigJson);
+    setProductConfig(parsed);
+    setProductConfigJson(stringifyProductConfig(parsed));
+  };
+
   const sanitizedRanges = normalizeRanges(ranges);
   const sanitizedPromoConfig = normalizePromoConfig(promoConfig);
-  const sanitizedProductConfigJson = stringifyProductConfig(productConfigJson);
+  const sanitizedProductConfigJson = buildProductAdvancedConfigFromForm(productConfig);
 
   return (
     <s-page heading="Custom SQM Pricing">
@@ -910,32 +1213,477 @@ export default function Index() {
 
                     <div className="sqm-section-heading">
                       <div>
-                        <h2>Configurazione avanzata prodotto</h2>
+                        <h2>Opzioni prodotto</h2>
                         <p>
-                          Definisci opzioni custom e commissioni automatiche in JSON.
-                          Lascia array vuoti per mantenere il comportamento standard.
+                          Configura visivamente le opzioni del calcolatore. Il JSON
+                          resta disponibile solo come editor avanzato e debug.
                         </p>
+                      </div>
+                      <div className="sqm-option-adders">
+                        {OPTION_TYPE_OPTIONS.slice(0, 3).map((optionType) => (
+                          <button
+                            className="sqm-button"
+                            key={optionType.value}
+                            onClick={() => addOptionGroup(optionType.value)}
+                            type="button"
+                          >
+                            + {optionType.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
-                    <label className="sqm-field sqm-json-editor">
-                      <span>JSON configurazione</span>
-                      <textarea
-                        onBlur={() => {
-                          if (!productConfigErrors.length) {
-                            setProductConfigJson(sanitizedProductConfigJson);
-                          }
-                        }}
-                        onChange={(event) => setProductConfigJson(event.target.value)}
-                        rows={14}
-                        spellCheck={false}
-                        value={productConfigJson}
-                      />
-                    </label>
+                    <div className="sqm-option-groups">
+                      {productConfig.optionGroups.map((group, groupIndex) => {
+                        const optionErrors = validateOptionGroup(group, groupIndex);
+
+                        return (
+                          <article className="sqm-option-card" key={`${group.id}-${groupIndex}`}>
+                            <div className="sqm-option-card__header">
+                              <div>
+                                <h3>{group.label || `Opzione ${groupIndex + 1}`}</h3>
+                                <p>
+                                  {OPTION_TYPE_OPTIONS.find(
+                                    (optionType) => optionType.value === group.type,
+                                  )?.label ?? group.type}
+                                </p>
+                              </div>
+                              <div className="sqm-option-card__actions">
+                                <button
+                                  className="sqm-icon-button"
+                                  onClick={() => moveOptionGroup(groupIndex, -1)}
+                                  type="button"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  className="sqm-icon-button"
+                                  onClick={() => moveOptionGroup(groupIndex, 1)}
+                                  type="button"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  className="sqm-icon-button"
+                                  onClick={() => duplicateOptionGroup(groupIndex)}
+                                  type="button"
+                                >
+                                  ⧉
+                                </button>
+                                <button
+                                  className="sqm-icon-button"
+                                  onClick={() => removeOptionGroup(groupIndex)}
+                                  type="button"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="sqm-option-card__grid">
+                              <label className="sqm-field">
+                                <span>Titolo opzione</span>
+                                <input
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "label",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="Es. Plastificazione"
+                                  type="text"
+                                  value={group.label}
+                                />
+                              </label>
+
+                              <label className="sqm-field">
+                                <span>Icona titolo</span>
+                                <select
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "icon",
+                                      event.target.value,
+                                    )
+                                  }
+                                  value={group.icon ?? ""}
+                                >
+                                  {ICON_OPTIONS.map((icon) => (
+                                    <option key={icon.value || "none"} value={icon.value}>
+                                      {icon.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="sqm-field">
+                                <span>Tipo input</span>
+                                <select
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "type",
+                                      event.target.value,
+                                    )
+                                  }
+                                  value={group.type}
+                                >
+                                  {OPTION_TYPE_OPTIONS.map((optionType) => (
+                                    <option key={optionType.value} value={optionType.value}>
+                                      {optionType.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label className="sqm-field sqm-field--wide">
+                                <span>Descrizione / help text</span>
+                                <input
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "helpText",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="Testo opzionale sotto il titolo"
+                                  type="text"
+                                  value={group.helpText ?? ""}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="sqm-option-card__toggles">
+                              <label className="sqm-toggle sqm-toggle--block">
+                                <input
+                                  checked={group.required}
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "required",
+                                      event.currentTarget.checked,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>Opzione obbligatoria</span>
+                              </label>
+
+                              <label className="sqm-toggle sqm-toggle--block">
+                                <input
+                                  checked={group.showInSummary}
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "showInSummary",
+                                      event.currentTarget.checked,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>Mostra nel riepilogo ordine</span>
+                              </label>
+
+                              <label className="sqm-toggle sqm-toggle--block">
+                                <input
+                                  checked={group.saveToProperties}
+                                  onChange={(event) =>
+                                    updateOptionGroup(
+                                      groupIndex,
+                                      "saveToProperties",
+                                      event.currentTarget.checked,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>Salva nelle line item properties</span>
+                              </label>
+                            </div>
+
+                            <div className="sqm-section-heading sqm-section-heading--tight">
+                              <div>
+                                <h2>Valori opzione</h2>
+                                <p>Aggiungi i valori visibili nel configuratore frontend.</p>
+                              </div>
+                              <button
+                                className="sqm-button"
+                                onClick={() => addOptionValue(groupIndex)}
+                                type="button"
+                              >
+                                Aggiungi valore
+                              </button>
+                            </div>
+
+                            <div className="sqm-option-values">
+                              {group.options.map((option, optionIndex) => (
+                                <div className="sqm-option-value" key={`${option.value}-${optionIndex}`}>
+                                  <div className="sqm-option-value__header">
+                                    <strong>{option.label || `Valore ${optionIndex + 1}`}</strong>
+                                    <div className="sqm-option-card__actions">
+                                      <button
+                                        className="sqm-icon-button"
+                                        onClick={() =>
+                                          duplicateOptionValue(groupIndex, optionIndex)
+                                        }
+                                        type="button"
+                                      >
+                                        ⧉
+                                      </button>
+                                      <button
+                                        className="sqm-icon-button"
+                                        onClick={() =>
+                                          removeOptionValue(groupIndex, optionIndex)
+                                        }
+                                        type="button"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="sqm-option-card__grid sqm-option-card__grid--value">
+                                    <label className="sqm-field">
+                                      <span>Etichetta visibile</span>
+                                      <input
+                                        onChange={(event) =>
+                                          updateOptionValue(
+                                            groupIndex,
+                                            optionIndex,
+                                            "label",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Es. Opaca"
+                                        type="text"
+                                        value={option.label}
+                                      />
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Valore interno</span>
+                                      <input
+                                        onChange={(event) =>
+                                          updateOptionValue(
+                                            groupIndex,
+                                            optionIndex,
+                                            "value",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Es. opaca"
+                                        type="text"
+                                        value={option.value}
+                                      />
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Badge</span>
+                                      <input
+                                        onChange={(event) =>
+                                          updateOptionValue(
+                                            groupIndex,
+                                            optionIndex,
+                                            "badge",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Es. Premium"
+                                        type="text"
+                                        value={option.badge ?? ""}
+                                      />
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Default</span>
+                                      <select
+                                        onChange={(event) =>
+                                          setOptionDefault(groupIndex, event.target.value)
+                                        }
+                                        value={group.defaultValue}
+                                      >
+                                        {group.options.map((groupOption) => (
+                                          <option
+                                            key={groupOption.value}
+                                            value={groupOption.value}
+                                          >
+                                            {groupOption.label || groupOption.value}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Tipo prezzo</span>
+                                      <select
+                                        onChange={(event) =>
+                                          updateOptionPriceModifier(
+                                            groupIndex,
+                                            optionIndex,
+                                            "type",
+                                            event.target.value,
+                                          )
+                                        }
+                                        value={option.priceModifier.type}
+                                      >
+                                        {PRICE_TYPE_OPTIONS.map((priceType) => (
+                                          <option
+                                            key={priceType.value}
+                                            value={priceType.value}
+                                          >
+                                            {priceType.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Importo</span>
+                                      <input
+                                        disabled={option.priceModifier.type === "none"}
+                                        onChange={(event) =>
+                                          updateOptionPriceModifier(
+                                            groupIndex,
+                                            optionIndex,
+                                            "amount",
+                                            event.target.value,
+                                          )
+                                        }
+                                        step="0.01"
+                                        type="number"
+                                        value={option.priceModifier.amount || ""}
+                                      />
+                                    </label>
+
+                                    <label className="sqm-field">
+                                      <span>Applica su</span>
+                                      <select
+                                        onChange={(event) =>
+                                          updateOptionPriceModifier(
+                                            groupIndex,
+                                            optionIndex,
+                                            "target",
+                                            event.target.value,
+                                          )
+                                        }
+                                        value={option.priceModifier.target ?? "subtotal"}
+                                      >
+                                        <option value="subtotal">Subtotale</option>
+                                        <option value="base">Prezzo base</option>
+                                      </select>
+                                    </label>
+
+                                    <label className="sqm-field sqm-field--wide">
+                                      <span>Etichetta frontend</span>
+                                      <input
+                                        onChange={(event) =>
+                                          updateOptionPriceModifier(
+                                            groupIndex,
+                                            optionIndex,
+                                            "frontendLabel",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Es. +2,50 €/mq"
+                                        type="text"
+                                        value={option.priceModifier.frontendLabel ?? ""}
+                                      />
+                                    </label>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="sqm-option-preview">
+                              <div className="sqm-option-preview__title">
+                                Preview configuratore
+                              </div>
+                              <div className="sqm-option-preview__label">
+                                {group.icon ? <span>{group.icon}</span> : null}
+                                <strong>{group.label || "Titolo opzione"}</strong>
+                              </div>
+                              {group.helpText ? (
+                                <p className="sqm-option-preview__help">{group.helpText}</p>
+                              ) : null}
+                              {group.type === "dropdown" ? (
+                                <select disabled value={group.defaultValue}>
+                                  {group.options.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                      {formatPriceModifierLabel(option.priceModifier)
+                                        ? ` ${formatPriceModifierLabel(option.priceModifier)}`
+                                        : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <div className="sqm-option-preview__chips">
+                                  {group.options.map((option) => (
+                                    <span
+                                      className={`sqm-option-preview__chip ${
+                                        group.defaultValue === option.value ? "is-active" : ""
+                                      }`}
+                                      key={option.value}
+                                    >
+                                      {option.label || option.value}
+                                      {option.badge ? ` · ${option.badge}` : ""}
+                                      {formatPriceModifierLabel(option.priceModifier)
+                                        ? ` ${formatPriceModifierLabel(option.priceModifier)}`
+                                        : ""}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {optionErrors.length ? (
+                              <div className="sqm-errors">
+                                {optionErrors.map((error) => (
+                                  <p key={error}>{error}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    {!productConfig.optionGroups.length ? (
+                      <p className="sqm-empty">
+                        Nessuna opzione extra configurata. Il frontend continuera a
+                        usare il calcolatore standard.
+                      </p>
+                    ) : null}
+
+                    <details className="sqm-advanced-json">
+                      <summary>Editor JSON avanzato</summary>
+                      <label className="sqm-field sqm-json-editor">
+                        <span>JSON configurazione</span>
+                        <textarea
+                          onBlur={() => {
+                            if (!productConfigJsonErrors.length) {
+                              applyAdvancedJson();
+                            }
+                          }}
+                          onChange={(event) => setProductConfigJson(event.target.value)}
+                          rows={14}
+                          spellCheck={false}
+                          value={productConfigJson}
+                        />
+                      </label>
+                    </details>
 
                     {productConfigErrors.length ? (
                       <div className="sqm-errors">
                         {productConfigErrors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {productConfigJsonErrors.length ? (
+                      <div className="sqm-errors">
+                        {productConfigJsonErrors.map((error) => (
                           <p key={error}>{error}</p>
                         ))}
                       </div>
@@ -1100,7 +1848,8 @@ export default function Index() {
                       isSaving ||
                       Boolean(rangeErrors.length) ||
                       Boolean(promoErrors.length) ||
-                      Boolean(productConfigErrors.length)
+                      Boolean(productConfigErrors.length) ||
+                      Boolean(productConfigJsonErrors.length)
                     }
                     type="submit"
                   >
@@ -1247,6 +1996,7 @@ const styles = `
 
   .sqm-search input,
   .sqm-field input,
+  .sqm-field select,
   .sqm-field textarea {
     border: 1px solid #c9cccf;
     border-radius: 6px;
@@ -1258,6 +2008,7 @@ const styles = `
   }
 
   .sqm-field input:focus,
+  .sqm-field select:focus,
   .sqm-field textarea:focus,
   .sqm-search input:focus {
     border-color: #008060;
@@ -1276,6 +2027,18 @@ const styles = `
 
   .sqm-json-editor {
     margin-bottom: 18px;
+  }
+
+  .sqm-advanced-json {
+    margin-bottom: 18px;
+  }
+
+  .sqm-advanced-json summary {
+    color: #202223;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
   }
 
   .sqm-search button,
@@ -1378,6 +2141,12 @@ const styles = `
     margin-top: 16px;
   }
 
+  .sqm-option-adders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   .sqm-promo-box {
     background: #f9fbfb;
     border: 1px solid #dfe3e8;
@@ -1419,6 +2188,126 @@ const styles = `
 
   .sqm-field--wide {
     min-width: 0;
+  }
+
+  .sqm-option-groups {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .sqm-option-card {
+    background: #f9fbfb;
+    border: 1px solid #dfe3e8;
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .sqm-option-card__header,
+  .sqm-option-value__header {
+    align-items: start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .sqm-option-card__header h3,
+  .sqm-option-value__header strong {
+    color: #202223;
+    margin: 0;
+  }
+
+  .sqm-option-card__header p {
+    color: #6d7175;
+    margin: 4px 0 0;
+  }
+
+  .sqm-option-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .sqm-option-card__grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 12px;
+  }
+
+  .sqm-option-card__grid--value {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .sqm-option-card__toggles {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 14px;
+  }
+
+  .sqm-option-values {
+    display: grid;
+    gap: 10px;
+  }
+
+  .sqm-option-value {
+    background: #ffffff;
+    border: 1px solid #e4e7eb;
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .sqm-option-preview {
+    background: #ffffff;
+    border: 1px dashed #cfd6dc;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 12px;
+  }
+
+  .sqm-option-preview__title {
+    color: #6d7175;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .sqm-option-preview__label {
+    align-items: center;
+    color: #202223;
+    display: flex;
+    gap: 8px;
+  }
+
+  .sqm-option-preview__help {
+    color: #6d7175;
+    margin: 6px 0 10px;
+  }
+
+  .sqm-option-preview__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .sqm-option-preview__chip {
+    background: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 999px;
+    color: #202223;
+    display: inline-flex;
+    font-size: 13px;
+    font-weight: 650;
+    padding: 8px 12px;
+  }
+
+  .sqm-option-preview__chip.is-active {
+    background: #edf8f1;
+    border-color: #008060;
+    color: #008060;
   }
 
   .sqm-field span {
@@ -1521,6 +2410,12 @@ const styles = `
     .sqm-promo-meta {
       grid-template-columns: 1fr;
     }
+
+    .sqm-option-card__grid,
+    .sqm-option-card__grid--value,
+    .sqm-option-card__toggles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 900px) {
@@ -1531,6 +2426,12 @@ const styles = `
     .sqm-panel__header--product,
     .sqm-section-heading {
       display: grid;
+    }
+
+    .sqm-option-card__header,
+    .sqm-option-value__header {
+      align-items: stretch;
+      flex-direction: column;
     }
   }
 
@@ -1552,6 +2453,12 @@ const styles = `
 
     .sqm-range-row--promo {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sqm-option-card__grid,
+    .sqm-option-card__grid--value,
+    .sqm-option-card__toggles {
+      grid-template-columns: 1fr;
     }
   }
 `;

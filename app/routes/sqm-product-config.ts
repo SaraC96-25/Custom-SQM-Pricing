@@ -6,22 +6,35 @@ export type PriceModifierType =
   | "percentage"
   | "multiplier";
 
+export type PriceModifierTarget = "base" | "subtotal";
+
+export type OptionGroupType =
+  | "button"
+  | "radio"
+  | "dropdown"
+  | "checkbox"
+  | "toggle";
+
 export type PriceModifier = {
   type: PriceModifierType;
   amount: number;
-  target?: "base" | "subtotal";
+  target?: PriceModifierTarget;
+  frontendLabel?: string;
 };
 
 export type SqmOption = {
   value: string;
   label: string;
+  badge?: string;
   priceModifier: PriceModifier;
 };
 
 export type SqmOptionGroup = {
   id: string;
   label: string;
-  type: "radio" | "button";
+  icon?: string;
+  helpText?: string;
+  type: OptionGroupType;
   defaultValue: string;
   required: boolean;
   showInSummary: boolean;
@@ -53,6 +66,30 @@ export type SqmProductConfig = {
   conditionalFees: ConditionalFee[];
 };
 
+export const EMPTY_PRICE_MODIFIER: PriceModifier = {
+  type: "none",
+  amount: 0,
+};
+
+export const EMPTY_OPTION: SqmOption = {
+  value: "option_1",
+  label: "",
+  priceModifier: { ...EMPTY_PRICE_MODIFIER },
+};
+
+export const EMPTY_OPTION_GROUP: SqmOptionGroup = {
+  id: "option_group",
+  label: "",
+  icon: "",
+  helpText: "",
+  type: "button",
+  defaultValue: "option_1",
+  required: true,
+  showInSummary: true,
+  saveToProperties: true,
+  options: [{ ...EMPTY_OPTION }],
+};
+
 export const EMPTY_PRODUCT_CONFIG: SqmProductConfig = {
   enableSqmCalculator: true,
   optionGroups: [],
@@ -66,6 +103,16 @@ const PRICE_MODIFIER_TYPES = new Set<PriceModifierType>([
   "fixed_piece",
   "percentage",
   "multiplier",
+]);
+
+const PRICE_TARGETS = new Set<PriceModifierTarget>(["base", "subtotal"]);
+
+const GROUP_TYPES = new Set<OptionGroupType>([
+  "button",
+  "radio",
+  "dropdown",
+  "checkbox",
+  "toggle",
 ]);
 
 const CONDITION_FIELDS = new Set<ConditionalRule["field"]>([
@@ -97,7 +144,7 @@ function toNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
-function normalizeId(value: unknown) {
+export function normalizeId(value: unknown) {
   return String(value ?? "")
     .trim()
     .toLowerCase()
@@ -143,6 +190,40 @@ function hasInvalidJson(value: unknown) {
   return !(parsed && typeof parsed === "object" && !Array.isArray(parsed));
 }
 
+export function createOptionValue(label: string, index: number) {
+  const fromLabel = normalizeId(label).replace(/_/g, "-");
+  return fromLabel || `option-${index + 1}`;
+}
+
+export function createEmptyOption(index = 0): SqmOption {
+  return {
+    value: createOptionValue("", index),
+    label: "",
+    badge: "",
+    priceModifier: { ...EMPTY_PRICE_MODIFIER },
+  };
+}
+
+export function createEmptyOptionGroup(
+  type: OptionGroupType = "button",
+  index = 0,
+): SqmOptionGroup {
+  const option = createEmptyOption(0);
+
+  return {
+    id: normalizeId(`option_group_${index + 1}`) || `option_group_${index + 1}`,
+    label: "",
+    icon: "",
+    helpText: "",
+    type,
+    defaultValue: option.value,
+    required: type === "checkbox" ? false : true,
+    showInSummary: true,
+    saveToProperties: true,
+    options: [option],
+  };
+}
+
 export function parseProductConfig(value: unknown): SqmProductConfig {
   const source = parseJsonObject(value) as Record<string, unknown>;
 
@@ -150,7 +231,7 @@ export function parseProductConfig(value: unknown): SqmProductConfig {
     enableSqmCalculator: source.enableSqmCalculator !== false,
     optionGroups: Array.isArray(source.optionGroups)
       ? source.optionGroups
-          .map((group) => normalizeOptionGroup(group))
+          .map((group, index) => normalizeOptionGroup(group, index))
           .filter((group): group is SqmOptionGroup => Boolean(group))
       : [],
     conditionalFees: Array.isArray(source.conditionalFees)
@@ -161,43 +242,65 @@ export function parseProductConfig(value: unknown): SqmProductConfig {
   };
 }
 
+export const parseProductAdvancedConfig = parseProductConfig;
+
 export function normalizeProductConfig(value: unknown): SqmProductConfig {
   return parseProductConfig(value);
 }
 
 export function normalizePriceModifier(value: unknown): PriceModifier {
   if (!value || typeof value !== "object") {
-    return { type: "none", amount: 0 };
+    return { ...EMPTY_PRICE_MODIFIER };
   }
 
   const source = value as Record<string, unknown>;
   const type = String(source.type ?? "none") as PriceModifierType;
   const amount = toNumber(source.amount) ?? 0;
-  const target = source.target === "base" || source.target === "subtotal"
-    ? source.target
+  const target = PRICE_TARGETS.has(source.target as PriceModifierTarget)
+    ? (source.target as PriceModifierTarget)
     : undefined;
+  const frontendLabel = String(
+    source.frontendLabel ?? source.label ?? source.priceLabel ?? "",
+  ).trim();
 
   if (!PRICE_MODIFIER_TYPES.has(type) || type === "none") {
-    return { type: "none", amount: 0 };
+    return {
+      type: "none",
+      amount: 0,
+      ...(frontendLabel ? { frontendLabel } : {}),
+    };
   }
 
   return {
     type,
     amount: roundDecimal(amount),
     ...(target ? { target } : {}),
+    ...(frontendLabel ? { frontendLabel } : {}),
   };
 }
 
-function normalizeOptionGroup(value: unknown): SqmOptionGroup | null {
+function normalizeOptionGroup(
+  value: unknown,
+  groupIndex = 0,
+): SqmOptionGroup | null {
   if (!value || typeof value !== "object") return null;
 
   const source = value as Record<string, unknown>;
-  const id = normalizeId(source.id);
   const label = String(source.label ?? "").trim();
-  const type = source.type === "button" ? "button" : "radio";
+  const id =
+    normalizeId(source.id) ||
+    normalizeId(label) ||
+    normalizeId(`option_group_${groupIndex + 1}`);
+  const type = GROUP_TYPES.has(source.type as OptionGroupType)
+    ? (source.type as OptionGroupType)
+    : source.type === "button"
+      ? "button"
+      : source.type === "dropdown"
+        ? "dropdown"
+        : "radio";
   const options = Array.isArray(source.options)
     ? source.options
-        .map((option) => normalizeOption(option))
+        .map((option, optionIndex) => normalizeOption(option, optionIndex))
         .filter((option): option is SqmOption => Boolean(option))
     : [];
   const defaultValue = String(source.defaultValue ?? options[0]?.value ?? "").trim();
@@ -207,29 +310,33 @@ function normalizeOptionGroup(value: unknown): SqmOptionGroup | null {
   return {
     id,
     label,
+    icon: String(source.icon ?? "").trim(),
+    helpText: String(source.helpText ?? source.description ?? "").trim(),
     type,
     defaultValue: options.some((option) => option.value === defaultValue)
       ? defaultValue
       : options[0].value,
-    required: source.required !== false,
+    required: type === "checkbox" ? source.required === true : source.required !== false,
     showInSummary: source.showInSummary !== false,
     saveToProperties: source.saveToProperties !== false,
     options,
   };
 }
 
-function normalizeOption(value: unknown): SqmOption | null {
+function normalizeOption(value: unknown, optionIndex = 0): SqmOption | null {
   if (!value || typeof value !== "object") return null;
 
   const source = value as Record<string, unknown>;
-  const optionValue = String(source.value ?? "").trim();
   const label = String(source.label ?? "").trim();
+  const optionValue =
+    String(source.value ?? "").trim() || createOptionValue(label, optionIndex);
 
   if (!optionValue || !label) return null;
 
   return {
     value: optionValue,
     label,
+    badge: String(source.badge ?? "").trim(),
     priceModifier: normalizePriceModifier(source.priceModifier),
   };
 }
@@ -238,18 +345,17 @@ function normalizeConditionalFee(value: unknown): ConditionalFee | null {
   if (!value || typeof value !== "object") return null;
 
   const source = value as Record<string, unknown>;
-  const id = normalizeId(source.id);
-  const label = String(source.label ?? "").trim();
-  const conditionSource =
-    source.condition && typeof source.condition === "object"
-      ? (source.condition as Record<string, unknown>)
-      : {};
-  const rules = Array.isArray(conditionSource.rules)
-    ? conditionSource.rules
+  const condition = source.condition && typeof source.condition === "object"
+    ? (source.condition as Record<string, unknown>)
+    : {};
+  const rules = Array.isArray(condition.rules)
+    ? condition.rules
         .map((rule) => normalizeConditionalRule(rule))
         .filter((rule): rule is ConditionalRule => Boolean(rule))
     : [];
   const fee = normalizePriceModifier(source.fee);
+  const id = normalizeId(source.id);
+  const label = String(source.label ?? "").trim();
 
   if (!id || !label || !rules.length || fee.type === "none") return null;
 
@@ -257,7 +363,7 @@ function normalizeConditionalFee(value: unknown): ConditionalFee | null {
     id,
     label,
     condition: {
-      operator: conditionSource.operator === "or" ? "or" : "and",
+      operator: condition.operator === "or" ? "or" : "and",
       rules,
     },
     fee,
@@ -270,54 +376,151 @@ function normalizeConditionalRule(value: unknown): ConditionalRule | null {
   if (!value || typeof value !== "object") return null;
 
   const source = value as Record<string, unknown>;
-  const field = String(source.field ?? "") as ConditionalRule["field"];
-  const comparison = String(source.comparison ?? "") as ConditionalRule["comparison"];
-  const ruleValue = toNumber(source.value);
+  const field = source.field as ConditionalRule["field"];
+  const comparison = source.comparison as ConditionalRule["comparison"];
+  const parsedValue = toNumber(source.value);
 
-  if (!CONDITION_FIELDS.has(field) || !COMPARISONS.has(comparison) || ruleValue === null) {
+  if (
+    !CONDITION_FIELDS.has(field) ||
+    !COMPARISONS.has(comparison) ||
+    parsedValue === null
+  ) {
     return null;
   }
 
   return {
     field,
     comparison,
-    value: roundDecimal(ruleValue),
+    value: roundDecimal(parsedValue),
   };
+}
+
+export function validateOptionGroup(group: SqmOptionGroup, index = 0) {
+  const errors: string[] = [];
+  const normalized = normalizeOptionGroup(group, index);
+
+  if (!normalized) {
+    errors.push(`L opzione #${index + 1} non e valida.`);
+    return errors;
+  }
+
+  if (!normalized.label.trim()) {
+    errors.push(`L opzione #${index + 1} deve avere un titolo.`);
+  }
+
+  if (!normalized.options.length) {
+    errors.push(`L opzione "${normalized.label || index + 1}" deve avere almeno un valore.`);
+  }
+
+  const seenValues = new Set<string>();
+
+  normalized.options.forEach((option, optionIndex) => {
+    if (!option.label.trim()) {
+      errors.push(
+        `Il valore #${optionIndex + 1} di "${normalized.label || index + 1}" deve avere un etichetta.`,
+      );
+    }
+
+    if (seenValues.has(option.value)) {
+      errors.push(
+        `I valori di "${normalized.label || index + 1}" devono avere un identificatore univoco.`,
+      );
+    }
+    seenValues.add(option.value);
+
+    const modifier = option.priceModifier;
+    if (
+      modifier.type !== "none" &&
+      modifier.type !== "multiplier" &&
+      !Number.isFinite(modifier.amount)
+    ) {
+      errors.push(
+        `Il prezzo di "${option.label || optionIndex + 1}" in "${normalized.label}" non e valido.`,
+      );
+    }
+
+    if (
+      modifier.type === "multiplier" &&
+      (!Number.isFinite(modifier.amount) || modifier.amount <= 0)
+    ) {
+      errors.push(
+        `Il moltiplicatore di "${option.label || optionIndex + 1}" in "${normalized.label}" deve essere maggiore di zero.`,
+      );
+    }
+  });
+
+  const defaultCount = normalized.options.filter(
+    (option) => option.value === normalized.defaultValue,
+  ).length;
+  if (normalized.type !== "checkbox" && defaultCount !== 1) {
+    errors.push(`L opzione "${normalized.label}" deve avere un solo valore di default.`);
+  }
+
+  return errors;
 }
 
 export function validateProductConfig(value: unknown) {
   const errors: string[] = [];
+
   if (hasInvalidJson(value)) {
-    return ["La configurazione avanzata deve essere un JSON oggetto valido."];
+    return ["JSON configurazione prodotto non valido."];
   }
 
   const config = normalizeProductConfig(value);
   const groupIds = new Set<string>();
-  const feeIds = new Set<string>();
 
-  config.optionGroups.forEach((group) => {
+  config.optionGroups.forEach((group, index) => {
     if (groupIds.has(group.id)) {
-      errors.push(`Gruppo opzioni duplicato: ${group.id}.`);
+      errors.push(`ID opzione duplicato: ${group.id}.`);
     }
     groupIds.add(group.id);
-
-    const optionValues = new Set<string>();
-    group.options.forEach((option) => {
-      if (optionValues.has(option.value)) {
-        errors.push(`Opzione duplicata nel gruppo "${group.label}": ${option.value}.`);
-      }
-      optionValues.add(option.value);
-    });
+    errors.push(...validateOptionGroup(group, index));
   });
 
-  config.conditionalFees.forEach((fee) => {
-    if (feeIds.has(fee.id)) {
-      errors.push(`Commissione duplicata: ${fee.id}.`);
+  config.conditionalFees.forEach((fee, index) => {
+    if (!fee.id) {
+      errors.push(`La commissione automatica #${index + 1} deve avere un id.`);
     }
-    feeIds.add(fee.id);
+    if (!fee.label) {
+      errors.push(`La commissione automatica #${index + 1} deve avere un titolo.`);
+    }
+    if (!fee.condition.rules.length) {
+      errors.push(`La commissione automatica "${fee.label || index + 1}" deve avere almeno una regola.`);
+    }
   });
 
   return errors;
+}
+
+export function calculateOptionPriceModifiers(
+  options: SqmOption[],
+  getSelectedValue: (option: SqmOption) => boolean,
+) {
+  return options.reduce((total, option) => {
+    if (!getSelectedValue(option)) return total;
+    return total + (option.priceModifier.type === "none" ? 0 : option.priceModifier.amount);
+  }, 0);
+}
+
+export function formatPriceModifierLabel(modifier: PriceModifier) {
+  if (!modifier || modifier.type === "none") return "";
+  if (modifier.frontendLabel?.trim()) return modifier.frontendLabel.trim();
+
+  const amount = roundDecimal(modifier.amount || 0).toLocaleString("it-IT", {
+    minimumFractionDigits: modifier.type === "percentage" ? 0 : 2,
+    maximumFractionDigits: modifier.type === "percentage" ? 2 : 2,
+  });
+
+  if (modifier.type === "per_sqm") return `+${amount} €/mq`;
+  if (modifier.type === "fixed_order") return `+${amount} €`;
+  if (modifier.type === "fixed_piece") return `+${amount} €/pz`;
+  if (modifier.type === "percentage") return `+${amount}%`;
+  if (modifier.type === "multiplier") return `x${amount}`;
+  return "";
+}
+
+export function buildProductAdvancedConfigFromForm(value: unknown) {
+  return stringifyProductConfig(normalizeProductConfig(value));
 }
 
 export function stringifyProductConfig(value: unknown) {
