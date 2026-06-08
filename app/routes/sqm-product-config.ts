@@ -74,6 +74,23 @@ export type SqmProductConfig = {
   packaging: SqmPackagingConfig;
 };
 
+export const SQM_ICON_DIMENSION_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_dimenisione.svg?v=1780912458";
+export const SQM_ICON_THICKNESS_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_spessore.svg?v=1780912458";
+export const SQM_ICON_PRINT_POSITION_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_posizione_stampa.svg?v=1780912458";
+export const SQM_ICON_QUANTITY_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_quantita.svg?v=1780912458";
+
+export const SQM_ICON_OPTIONS = [
+  { label: "Nessuna", value: "" },
+  { label: "Dimensione", value: SQM_ICON_DIMENSION_URL },
+  { label: "Spessore", value: SQM_ICON_THICKNESS_URL },
+  { label: "Posizione stampa", value: SQM_ICON_PRINT_POSITION_URL },
+  { label: "Quantità", value: SQM_ICON_QUANTITY_URL },
+] as const;
+
 export const EMPTY_PRICE_MODIFIER: PriceModifier = {
   type: "none",
   amount: 0,
@@ -170,6 +187,27 @@ export function normalizeId(value: unknown) {
 
 function roundDecimal(value: number) {
   return Math.round(value * 1000) / 1000;
+}
+
+function isIconUrl(value: string) {
+  return /^(https?:)?\/\//.test(value);
+}
+
+const LEGACY_ICON_MAP: Record<string, string> = {
+  sparkles: SQM_ICON_DIMENSION_URL,
+  droplets: SQM_ICON_DIMENSION_URL,
+  ruler: SQM_ICON_DIMENSION_URL,
+  layers: SQM_ICON_THICKNESS_URL,
+  image: SQM_ICON_PRINT_POSITION_URL,
+  print: SQM_ICON_PRINT_POSITION_URL,
+  quantity: SQM_ICON_QUANTITY_URL,
+};
+
+export function normalizeSqmIconValue(value: unknown) {
+  const icon = String(value ?? "").trim();
+  if (!icon) return "";
+  if (isIconUrl(icon)) return icon;
+  return LEGACY_ICON_MAP[icon] ?? icon;
 }
 
 function parseJsonObject(value: unknown) {
@@ -325,7 +363,7 @@ function normalizeOptionGroup(
   return {
     id,
     label,
-    icon: String(source.icon ?? "").trim(),
+    icon: normalizeSqmIconValue(source.icon),
     helpText: String(source.helpText ?? source.description ?? "").trim(),
     type,
     defaultValue: options.some((option) => option.value === defaultValue)

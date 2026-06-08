@@ -24,7 +24,9 @@ import {
   formatPriceModifierLabel,
   normalizeProductConfig,
   normalizeId,
+  normalizeSqmIconValue,
   parseProductAdvancedConfig,
+  SQM_ICON_OPTIONS,
   stringifyProductConfig,
   validateOptionGroup,
   validateProductConfig,
@@ -123,16 +125,6 @@ const OPTION_TYPE_OPTIONS: Array<{
   },
 ];
 
-const ICON_OPTIONS = [
-  { label: "Nessuna", value: "" },
-  { label: "Sparkles", value: "sparkles" },
-  { label: "Layers", value: "layers" },
-  { label: "Droplets", value: "droplets" },
-  { label: "Image", value: "image" },
-  { label: "Ruler", value: "ruler" },
-  { label: "Print", value: "print" },
-];
-
 const PRICE_TYPE_OPTIONS: Array<{ label: string; value: PriceModifierType }> = [
   { label: "Nessuna modifica", value: "none" },
   { label: "Extra per mq", value: "per_sqm" },
@@ -188,6 +180,21 @@ function summarizeOptionGroup(group: SqmOptionGroup) {
         ? `${pricedCount} ${pricedCount === 1 ? "valore con extra" : "valori con extra"}`
         : "Nessun extra prezzo",
   };
+}
+
+function SqmIconPreview({
+  icon,
+  alt,
+  className = "sqm-option-icon",
+}: {
+  icon?: string | null;
+  alt: string;
+  className?: string;
+}) {
+  const normalizedIcon = normalizeSqmIconValue(icon);
+  if (!normalizedIcon) return null;
+
+  return <img alt="" aria-hidden="true" className={className} src={normalizedIcon} />;
 }
 
 const PRODUCTS_QUERY = `#graphql
@@ -1369,7 +1376,13 @@ export default function Index() {
                           <article className="sqm-option-card" key={`${group.id}-${groupIndex}`}>
                             <div className="sqm-option-card__header">
                               <div>
-                                <h3>{group.label || `Variante ${groupIndex + 1}`}</h3>
+                                <h3 className="sqm-option-card__title">
+                                  <SqmIconPreview
+                                    alt={group.label || `Variante ${groupIndex + 1}`}
+                                    icon={group.icon}
+                                  />
+                                  <span>{group.label || `Variante ${groupIndex + 1}`}</span>
+                                </h3>
                                 <p>Tipo: {OPTION_TYPE_OPTIONS.find((optionType) => optionType.value === group.type)?.label ?? group.type}</p>
                                 <p>Valori: {summary.valuesLabel}</p>
                                 <p>Prezzo: {summary.pricedLabel}</p>
@@ -1435,11 +1448,11 @@ export default function Index() {
                             <span>Icona titolo</span>
                             <select
                               onChange={(event) =>
-                                updateOptionGroup("icon", event.target.value)
+                                updateOptionGroup("icon", normalizeSqmIconValue(event.target.value))
                               }
-                              value={draftOptionGroup.icon ?? ""}
+                              value={normalizeSqmIconValue(draftOptionGroup.icon ?? "")}
                             >
-                              {ICON_OPTIONS.map((icon) => (
+                              {SQM_ICON_OPTIONS.map((icon) => (
                                 <option key={icon.value || "none"} value={icon.value}>
                                   {icon.label}
                                 </option>
@@ -1701,7 +1714,11 @@ export default function Index() {
                             Preview configuratore
                           </div>
                           <div className="sqm-option-preview__label">
-                            {draftOptionGroup.icon ? <span>{draftOptionGroup.icon}</span> : null}
+                            <SqmIconPreview
+                              alt={draftOptionGroup.label || "Titolo variante"}
+                              className="sqm-option-preview__icon"
+                              icon={draftOptionGroup.icon}
+                            />
                             <strong>{draftOptionGroup.label || "Titolo variante"}</strong>
                           </div>
                           {draftOptionGroup.helpText ? (
@@ -2654,6 +2671,22 @@ const styles = `
     color: var(--sqm-ink);
     display: flex;
     gap: 8px;
+  }
+
+  .sqm-option-preview__icon,
+  .sqm-option-icon {
+    display: inline-block;
+    flex: 0 0 auto;
+    height: 18px;
+    object-fit: contain;
+    width: 18px;
+  }
+
+  .sqm-option-card__title {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    margin: 0;
   }
 
   .sqm-option-preview__help {
