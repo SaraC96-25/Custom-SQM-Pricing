@@ -2,6 +2,7 @@ export type PromoFormatEntry = {
   label: string;
   base: number;
   height: number;
+  promoDiscountPercent: number;
 };
 
 export type PromoFormatConfig = {
@@ -71,6 +72,7 @@ export function normalizePromoFormatEntry(value: unknown): PromoFormatEntry | nu
   const label = String(source.label ?? "").trim();
   const base = toNumber(source.base);
   const height = toNumber(source.height);
+  const promoDiscountPercent = toNumber(source.promoDiscountPercent) ?? 0;
 
   if (!label || base === null || height === null) return null;
   if (base <= 0 || height <= 0) return null;
@@ -79,6 +81,7 @@ export function normalizePromoFormatEntry(value: unknown): PromoFormatEntry | nu
     label,
     base: roundDecimal(base),
     height: roundDecimal(height),
+    promoDiscountPercent: Math.min(100, Math.max(0, roundDecimal(promoDiscountPercent))),
   };
 }
 
@@ -115,6 +118,10 @@ export function validatePromoConfig(config: PromoFormatConfig) {
 
     if (format.base <= 0 || format.height <= 0) {
       errors.push(`Formato promo ${row}: base e altezza devono essere maggiori di 0.`);
+    }
+
+    if (format.promoDiscountPercent < 0 || format.promoDiscountPercent > 100) {
+      errors.push(`Formato promo ${row}: lo sconto promo deve essere compreso tra 0 e 100.`);
     }
   });
 

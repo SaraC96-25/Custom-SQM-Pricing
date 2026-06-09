@@ -8,15 +8,17 @@ Questa app Shopify usa Supabase Postgres per salvare le sessioni OAuth e Render 
 2. Vai in **Project Settings > Database**.
 3. Copia due connection string:
    - **Transaction pooler** per `DATABASE_URL`
-   - **Direct connection** per `DIRECT_URL`
+   - **Session pooler** per `DIRECT_URL`
 4. Sostituisci `[PASSWORD]` con la password database del progetto.
 
 Esempio:
 
 ```env
 DATABASE_URL=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
-DIRECT_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres
+DIRECT_URL=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
 ```
+
+Su Render non usare `db.[PROJECT_REF].supabase.co:5432` per `DIRECT_URL`, a meno che il progetto Supabase abbia l'IPv4 add-on o l'ambiente supporti IPv6. La direct connection Supabase puo' risolvere solo in IPv6; il pooler condiviso Supavisor e' compatibile IPv4.
 
 ## 2. Render
 

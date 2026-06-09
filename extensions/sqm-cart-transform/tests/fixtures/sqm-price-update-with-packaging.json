@@ -8,11 +8,13 @@
           {
             "id": "gid://shopify/CartLine/1",
             "quantity": 1,
-            "finalPriceCents": {
-              "value": "8640"
+            "finalPriceCents": null,
+            "packagingPriceCents": {
+              "value": "1500"
             },
-            "packagingPriceCents": null,
-            "calculatedPriceCents": null,
+            "calculatedPriceCents": {
+              "value": "12000"
+            },
             "calculatedPriceLabel": null
           }
         ]
@@ -26,7 +28,7 @@
             "price": {
               "adjustment": {
                 "fixedPricePerUnit": {
-                  "amount": "86.40"
+                  "amount": "135.00"
                 }
               }
             }

@@ -788,6 +788,7 @@ export default function Index() {
           label: "",
           base: 0,
           height: 0,
+          promoDiscountPercent: 0,
         },
       ],
     }));
@@ -1300,6 +1301,19 @@ export default function Index() {
                                 step="0.1"
                                 type="number"
                                 value={format.height || ""}
+                              />
+                            </label>
+                            <label className="sqm-field">
+                              <span>Sconto promo %</span>
+                              <input
+                                max="100"
+                                min="0"
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "promoDiscountPercent", event.target.value)
+                                }
+                                step="0.01"
+                                type="number"
+                                value={format.promoDiscountPercent || ""}
                               />
                             </label>
                             <button
@@ -2547,7 +2561,12 @@ const styles = `
   }
 
   .sqm-range-row--promo {
-    grid-template-columns: minmax(180px, 1.5fr) minmax(90px, 1fr) minmax(90px, 1fr) 38px;
+    grid-template-columns:
+      minmax(180px, 1.5fr)
+      minmax(90px, 1fr)
+      minmax(90px, 1fr)
+      minmax(110px, 1fr)
+      38px;
   }
 
   .sqm-field {
@@ -2833,7 +2852,12 @@ const styles = `
     }
 
     .sqm-range-row--promo {
-      grid-template-columns: minmax(0, 1fr) minmax(90px, 1fr) minmax(90px, 1fr) 38px;
+      grid-template-columns:
+        minmax(0, 1fr)
+        minmax(90px, 1fr)
+        minmax(90px, 1fr)
+        minmax(110px, 1fr)
+        38px;
     }
 
     .sqm-promo-meta {

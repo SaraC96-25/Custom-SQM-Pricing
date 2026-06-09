@@ -11,6 +11,7 @@
             "finalPriceCents": {
               "value": "8640"
             },
+            "packagingPriceCents": null,
             "calculatedPriceCents": null,
             "calculatedPriceLabel": null
           }

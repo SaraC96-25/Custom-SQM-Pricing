@@ -19,9 +19,16 @@ const NO_CHANGES = {
 export function cartTransformRun(input) {
   const operations = input.cart.lines
     .map((line) => {
-      const cents = parseCents(
-        line.finalPriceCents?.value ?? line.calculatedPriceCents?.value,
-      ) ?? parseMoneyCents(line.calculatedPriceLabel?.value);
+      const finalCents = parseCents(line.finalPriceCents?.value);
+      const calculatedCents =
+        parseCents(line.calculatedPriceCents?.value) ??
+        parseMoneyCents(line.calculatedPriceLabel?.value);
+      const packagingCents = parseCents(line.packagingPriceCents?.value) ?? 0;
+      const fallbackCents = calculatedCents != null ? calculatedCents + packagingCents : null;
+      const cents =
+        finalCents != null && fallbackCents != null
+          ? Math.max(finalCents, fallbackCents)
+          : finalCents ?? fallbackCents;
 
       if (!cents) return null;
 

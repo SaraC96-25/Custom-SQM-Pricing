@@ -587,19 +587,7 @@ export function calculateOptionPriceModifiers(
 
 export function formatPriceModifierLabel(modifier: PriceModifier) {
   if (!modifier || modifier.type === "none") return "";
-  if (modifier.frontendLabel?.trim()) return modifier.frontendLabel.trim();
-
-  const amount = roundDecimal(modifier.amount || 0).toLocaleString("it-IT", {
-    minimumFractionDigits: modifier.type === "percentage" ? 0 : 2,
-    maximumFractionDigits: modifier.type === "percentage" ? 2 : 2,
-  });
-
-  if (modifier.type === "per_sqm") return `+${amount} €/mq`;
-  if (modifier.type === "fixed_order") return `+${amount} €`;
-  if (modifier.type === "fixed_piece") return `+${amount} €/pz`;
-  if (modifier.type === "percentage") return `+${amount}%`;
-  if (modifier.type === "multiplier") return `x${amount}`;
-  return "";
+  return modifier.frontendLabel?.trim() ?? "";
 }
 
 export function buildProductAdvancedConfigFromForm(value: unknown) {
