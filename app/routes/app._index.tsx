@@ -789,6 +789,7 @@ export default function Index() {
           base: 0,
           height: 0,
           promoPricePerSqm: 0,
+          promoMaxAreaM2: 0,
           promoDiscountPercent: 0,
         },
       ],
@@ -1314,6 +1315,19 @@ export default function Index() {
                                 step="0.01"
                                 type="number"
                                 value={format.promoPricePerSqm || ""}
+                              />
+                            </label>
+                            <label className="sqm-field">
+                              <span>Mq max promo</span>
+                              <input
+                                min="0"
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "promoMaxAreaM2", event.target.value)
+                                }
+                                placeholder="0 = nessun limite"
+                                step="0.01"
+                                type="number"
+                                value={format.promoMaxAreaM2 || ""}
                               />
                             </label>
                             <label className="sqm-field">
@@ -2574,10 +2588,11 @@ const styles = `
 
   .sqm-range-row--promo {
     grid-template-columns:
-      minmax(180px, 1.5fr)
+      minmax(160px, 1.35fr)
       minmax(90px, 1fr)
       minmax(90px, 1fr)
-      minmax(120px, 1fr)
+      minmax(115px, 1fr)
+      minmax(115px, 1fr)
       minmax(110px, 1fr)
       38px;
   }
@@ -2867,10 +2882,11 @@ const styles = `
     .sqm-range-row--promo {
       grid-template-columns:
         minmax(0, 1fr)
-        minmax(90px, 1fr)
-        minmax(90px, 1fr)
-        minmax(110px, 1fr)
-        minmax(110px, 1fr)
+        minmax(84px, 1fr)
+        minmax(84px, 1fr)
+        minmax(100px, 1fr)
+        minmax(100px, 1fr)
+        minmax(100px, 1fr)
         38px;
     }
 

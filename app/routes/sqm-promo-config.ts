@@ -3,6 +3,7 @@ export type PromoFormatEntry = {
   base: number;
   height: number;
   promoPricePerSqm: number;
+  promoMaxAreaM2: number;
   promoDiscountPercent: number;
 };
 
@@ -74,6 +75,7 @@ export function normalizePromoFormatEntry(value: unknown): PromoFormatEntry | nu
   const base = toNumber(source.base);
   const height = toNumber(source.height);
   const promoPricePerSqm = toNumber(source.promoPricePerSqm) ?? 0;
+  const promoMaxAreaM2 = toNumber(source.promoMaxAreaM2) ?? 0;
   const promoDiscountPercent = toNumber(source.promoDiscountPercent) ?? 0;
 
   if (!label || base === null || height === null) return null;
@@ -84,6 +86,7 @@ export function normalizePromoFormatEntry(value: unknown): PromoFormatEntry | nu
     base: roundDecimal(base),
     height: roundDecimal(height),
     promoPricePerSqm: Math.max(0, roundDecimal(promoPricePerSqm)),
+    promoMaxAreaM2: Math.max(0, roundDecimal(promoMaxAreaM2)),
     promoDiscountPercent: Math.min(100, Math.max(0, roundDecimal(promoDiscountPercent))),
   };
 }
@@ -125,6 +128,10 @@ export function validatePromoConfig(config: PromoFormatConfig) {
 
     if (format.promoPricePerSqm < 0) {
       errors.push(`Formato promo ${row}: il prezzo promo al mq non puo essere negativo.`);
+    }
+
+    if (format.promoMaxAreaM2 < 0) {
+      errors.push(`Formato promo ${row}: il massimo mq promo non puo essere negativo.`);
     }
 
     if (format.promoDiscountPercent < 0 || format.promoDiscountPercent > 100) {
