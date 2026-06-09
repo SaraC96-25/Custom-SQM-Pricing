@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { Form, useFetcher, useLoaderData } from "react-router";
+import { Form, Link, useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -1092,18 +1092,18 @@ export default function Index() {
                 <button type="submit">Cerca</button>
               </Form>
 
-              <div className="sqm-product-list">
+                <div className="sqm-product-list">
                 {products.map((product) => {
-                  const href = `/app?productId=${encodeURIComponent(product.id)}${
+                  const to = `?productId=${encodeURIComponent(product.id)}${
                     search ? `&q=${encodeURIComponent(search)}` : ""
                   }`;
 
                   return (
-                    <a
+                    <Link
                       className={`sqm-product ${
                         product.id === selectedProduct?.id ? "is-selected" : ""
                       }`}
-                      href={href}
+                      to={to}
                       key={product.id}
                     >
                       <span>
@@ -1111,7 +1111,7 @@ export default function Index() {
                         <small>{product.handle}</small>
                       </span>
                       {product.enabled ? <em>Attivo</em> : null}
-                    </a>
+                    </Link>
                   );
                 })}
 
@@ -2127,11 +2127,11 @@ const styles = `
 
   .sqm-layout {
     display: grid;
-    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-    gap: 18px;
+    grid-template-columns: minmax(250px, 340px) minmax(0, 1fr);
+    gap: 22px;
     align-items: start;
     margin: 0 auto;
-    max-width: 1180px;
+    max-width: 1320px;
     width: 100%;
   }
 
@@ -2833,7 +2833,7 @@ const styles = `
 
   @media (max-width: 1120px) {
     .sqm-layout {
-      grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+      grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
     }
 
     .sqm-range-row {
