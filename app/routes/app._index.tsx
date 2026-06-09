@@ -1057,7 +1057,6 @@ export default function Index() {
     <s-page heading="Custom SQM Pricing">
       <style>{styles}</style>
 
-      <s-section>
         <div className="sqm-layout">
           <aside className="sqm-sidebar">
             <div className="sqm-panel sqm-panel--compact">
@@ -2096,7 +2095,6 @@ export default function Index() {
             )}
           </main>
         </div>
-      </s-section>
     </s-page>
   );
 }
