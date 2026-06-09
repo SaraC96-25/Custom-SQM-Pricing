@@ -2153,8 +2153,8 @@ const styles = `
 
   .sqm-layout {
     display: grid;
-    grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 20px;
     align-items: start;
     margin: 0;
     max-width: none;
@@ -2551,6 +2551,7 @@ const styles = `
     background: #ffffff;
     border: 1px solid var(--sqm-line);
     border-radius: 16px;
+    overflow: hidden;
     padding: 16px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sqm-shadow-soft);
   }
@@ -2595,6 +2596,16 @@ const styles = `
       minmax(115px, 1fr)
       minmax(110px, 1fr)
       38px;
+  }
+
+  @media (max-width: 1520px) {
+    .sqm-range-row--promo {
+      grid-template-columns:
+        minmax(160px, 1.45fr)
+        minmax(90px, 1fr)
+        minmax(90px, 1fr)
+        minmax(110px, 1fr);
+    }
   }
 
   .sqm-field {
@@ -2881,13 +2892,9 @@ const styles = `
 
     .sqm-range-row--promo {
       grid-template-columns:
-        minmax(0, 1fr)
-        minmax(84px, 1fr)
-        minmax(84px, 1fr)
-        minmax(100px, 1fr)
-        minmax(100px, 1fr)
-        minmax(100px, 1fr)
-        38px;
+        minmax(0, 1.4fr)
+        minmax(88px, 1fr)
+        minmax(88px, 1fr);
     }
 
     .sqm-promo-meta {
