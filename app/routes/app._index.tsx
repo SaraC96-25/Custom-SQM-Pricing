@@ -788,6 +788,7 @@ export default function Index() {
           label: "",
           base: 0,
           height: 0,
+          promoPricePerSqm: 0,
           promoDiscountPercent: 0,
         },
       ],
@@ -1300,6 +1301,19 @@ export default function Index() {
                                 step="0.1"
                                 type="number"
                                 value={format.height || ""}
+                              />
+                            </label>
+                            <label className="sqm-field">
+                              <span>Prezzo promo €/mq</span>
+                              <input
+                                min="0"
+                                onChange={(event) =>
+                                  updatePromoFormat(index, "promoPricePerSqm", event.target.value)
+                                }
+                                placeholder="Es. 10"
+                                step="0.01"
+                                type="number"
+                                value={format.promoPricePerSqm || ""}
                               />
                             </label>
                             <label className="sqm-field">
@@ -2563,6 +2577,7 @@ const styles = `
       minmax(180px, 1.5fr)
       minmax(90px, 1fr)
       minmax(90px, 1fr)
+      minmax(120px, 1fr)
       minmax(110px, 1fr)
       38px;
   }
@@ -2854,6 +2869,7 @@ const styles = `
         minmax(0, 1fr)
         minmax(90px, 1fr)
         minmax(90px, 1fr)
+        minmax(110px, 1fr)
         minmax(110px, 1fr)
         38px;
     }
