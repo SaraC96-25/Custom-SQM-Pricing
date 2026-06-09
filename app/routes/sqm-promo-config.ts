@@ -1,10 +1,14 @@
+export type PromoQuantityRange = {
+  minQty: number;
+  maxQty: number | null;
+  pricePerSqm: number;
+};
+
 export type PromoFormatEntry = {
   label: string;
   base: number;
   height: number;
-  promoPricePerSqm: number;
-  promoMaxAreaM2: number;
-  promoDiscountPercent: number;
+  quantityRanges: PromoQuantityRange[];
 };
 
 export type PromoFormatConfig = {
@@ -20,6 +24,27 @@ export const EMPTY_PROMO_CONFIG: PromoFormatConfig = {
   promoMessage: "",
   formats: [],
 };
+
+function normalizePromoQuantityRange(value: unknown): PromoQuantityRange | null {
+  if (!value || typeof value !== "object") return null;
+
+  const source = value as Record<string, unknown>;
+  const minQty = toNumber(source.minQty);
+  const maxQtySource = toNumber(source.maxQty);
+  const pricePerSqm = toNumber(source.pricePerSqm);
+
+  if (minQty === null || pricePerSqm === null) return null;
+  if (minQty < 1 || pricePerSqm < 0) return null;
+
+  const maxQty =
+    maxQtySource === null || maxQtySource <= 0 ? null : Math.max(minQty, Math.round(maxQtySource));
+
+  return {
+    minQty: Math.max(1, Math.round(minQty)),
+    maxQty,
+    pricePerSqm: Math.max(0, roundDecimal(pricePerSqm)),
+  };
+}
 
 function toNumber(value: unknown) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -74,20 +99,31 @@ export function normalizePromoFormatEntry(value: unknown): PromoFormatEntry | nu
   const label = String(source.label ?? "").trim();
   const base = toNumber(source.base);
   const height = toNumber(source.height);
-  const promoPricePerSqm = toNumber(source.promoPricePerSqm) ?? 0;
-  const promoMaxAreaM2 = toNumber(source.promoMaxAreaM2) ?? 0;
-  const promoDiscountPercent = toNumber(source.promoDiscountPercent) ?? 0;
+  const legacyPromoPricePerSqm = toNumber(source.promoPricePerSqm) ?? 0;
+  const quantityRangesSource = Array.isArray(source.quantityRanges)
+    ? source.quantityRanges
+    : [];
+  const quantityRanges = quantityRangesSource
+    .map((entry) => normalizePromoQuantityRange(entry))
+    .filter((entry): entry is PromoQuantityRange => Boolean(entry))
+    .sort((left, right) => left.minQty - right.minQty);
 
   if (!label || base === null || height === null) return null;
   if (base <= 0 || height <= 0) return null;
+
+  if (!quantityRanges.length && legacyPromoPricePerSqm > 0) {
+    quantityRanges.push({
+      minQty: 1,
+      maxQty: null,
+      pricePerSqm: Math.max(0, roundDecimal(legacyPromoPricePerSqm)),
+    });
+  }
 
   return {
     label,
     base: roundDecimal(base),
     height: roundDecimal(height),
-    promoPricePerSqm: Math.max(0, roundDecimal(promoPricePerSqm)),
-    promoMaxAreaM2: Math.max(0, roundDecimal(promoMaxAreaM2)),
-    promoDiscountPercent: Math.min(100, Math.max(0, roundDecimal(promoDiscountPercent))),
+    quantityRanges,
   };
 }
 
@@ -126,16 +162,36 @@ export function validatePromoConfig(config: PromoFormatConfig) {
       errors.push(`Formato promo ${row}: base e altezza devono essere maggiori di 0.`);
     }
 
-    if (format.promoPricePerSqm < 0) {
-      errors.push(`Formato promo ${row}: il prezzo promo al mq non puo essere negativo.`);
+    if (!format.quantityRanges.length) {
+      errors.push(`Formato promo ${row}: aggiungi almeno una fascia quantità.`);
     }
 
-    if (format.promoMaxAreaM2 < 0) {
-      errors.push(`Formato promo ${row}: il massimo mq promo non puo essere negativo.`);
-    }
+    format.quantityRanges.forEach((range, rangeIndex) => {
+      const rangeRow = `${row}.${rangeIndex + 1}`;
 
-    if (format.promoDiscountPercent < 0 || format.promoDiscountPercent > 100) {
-      errors.push(`Formato promo ${row}: lo sconto promo deve essere compreso tra 0 e 100.`);
+      if (range.minQty < 1) {
+        errors.push(`Formato promo ${rangeRow}: la quantità minima deve essere almeno 1.`);
+      }
+
+      if (range.maxQty !== null && range.maxQty < range.minQty) {
+        errors.push(`Formato promo ${rangeRow}: la quantità massima deve essere maggiore o uguale alla minima.`);
+      }
+
+      if (range.pricePerSqm < 0) {
+        errors.push(`Formato promo ${rangeRow}: il prezzo al mq non puo essere negativo.`);
+      }
+    });
+
+    const orderedRanges = [...format.quantityRanges].sort((left, right) => left.minQty - right.minQty);
+    for (let rangeIndex = 1; rangeIndex < orderedRanges.length; rangeIndex += 1) {
+      const previous = orderedRanges[rangeIndex - 1];
+      const current = orderedRanges[rangeIndex];
+      const previousMax = previous.maxQty ?? Number.POSITIVE_INFINITY;
+
+      if (current.minQty <= previousMax) {
+        errors.push(`Formato promo ${row}: le fasce quantità si sovrappongono.`);
+        break;
+      }
     }
   });
 

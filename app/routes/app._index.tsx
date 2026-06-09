@@ -15,6 +15,7 @@ import {
   validatePromoConfig,
   type PromoFormatConfig,
   type PromoFormatEntry,
+  type PromoQuantityRange,
 } from "./sqm-promo-config";
 import {
   buildProductAdvancedConfigFromForm,
@@ -91,6 +92,12 @@ const EMPTY_RANGE: DiscountRange = {
   max_m2: null,
   discount_percent: 0,
   label: "",
+};
+
+const EMPTY_PROMO_QUANTITY_RANGE: PromoQuantityRange = {
+  minQty: 1,
+  maxQty: null,
+  pricePerSqm: 0,
 };
 
 const OPTION_TYPE_OPTIONS: Array<{
@@ -771,9 +778,91 @@ export default function Index() {
         if (field === "label") {
           return { ...format, label: value };
         }
+        if (field === "quantityRanges") {
+          return format;
+        }
         return {
           ...format,
           [field]: Math.max(0, toNumber(value) ?? 0),
+        };
+      }),
+    }));
+  };
+
+  const updatePromoQuantityRange = (
+    formatIndex: number,
+    rangeIndex: number,
+    field: keyof PromoQuantityRange,
+    value: string,
+  ) => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: current.formats.map((format, currentFormatIndex) => {
+        if (currentFormatIndex !== formatIndex) return format;
+
+        return {
+          ...format,
+          quantityRanges: format.quantityRanges.map((range, currentRangeIndex) => {
+            if (currentRangeIndex !== rangeIndex) return range;
+
+            if (field === "maxQty") {
+              const nextValue = toNumber(value);
+              return {
+                ...range,
+                maxQty: nextValue === null || nextValue <= 0 ? null : Math.max(1, Math.round(nextValue)),
+              };
+            }
+
+            if (field === "minQty") {
+              return {
+                ...range,
+                minQty: Math.max(1, Math.round(toNumber(value) ?? 1)),
+              };
+            }
+
+            return {
+              ...range,
+              pricePerSqm: Math.max(0, toNumber(value) ?? 0),
+            };
+          }),
+        };
+      }),
+    }));
+  };
+
+  const addPromoQuantityRange = (formatIndex: number) => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: current.formats.map((format, currentFormatIndex) => {
+        if (currentFormatIndex !== formatIndex) return format;
+
+        const lastRange = format.quantityRanges[format.quantityRanges.length - 1];
+        const nextMinQty = lastRange?.maxQty ? lastRange.maxQty + 1 : (lastRange?.minQty ?? 0) + 1;
+
+        return {
+          ...format,
+          quantityRanges: [
+            ...format.quantityRanges,
+            {
+              ...EMPTY_PROMO_QUANTITY_RANGE,
+              minQty: Math.max(1, nextMinQty),
+            },
+          ],
+        };
+      }),
+    }));
+  };
+
+  const removePromoQuantityRange = (formatIndex: number, rangeIndex: number) => {
+    setPromoConfig((current) => ({
+      ...current,
+      formats: current.formats.map((format, currentFormatIndex) => {
+        if (currentFormatIndex !== formatIndex) return format;
+
+        const nextRanges = format.quantityRanges.filter((_, currentRangeIndex) => currentRangeIndex !== rangeIndex);
+        return {
+          ...format,
+          quantityRanges: nextRanges.length ? nextRanges : [{ ...EMPTY_PROMO_QUANTITY_RANGE }],
         };
       }),
     }));
@@ -788,9 +877,7 @@ export default function Index() {
           label: "",
           base: 0,
           height: 0,
-          promoPricePerSqm: 0,
-          promoMaxAreaM2: 0,
-          promoDiscountPercent: 0,
+          quantityRanges: [{ ...EMPTY_PROMO_QUANTITY_RANGE }],
         },
       ],
     }));
@@ -1304,45 +1391,6 @@ export default function Index() {
                                 value={format.height || ""}
                               />
                             </label>
-                            <label className="sqm-field">
-                              <span>Prezzo promo €/mq</span>
-                              <input
-                                min="0"
-                                onChange={(event) =>
-                                  updatePromoFormat(index, "promoPricePerSqm", event.target.value)
-                                }
-                                placeholder="Es. 10"
-                                step="0.01"
-                                type="number"
-                                value={format.promoPricePerSqm || ""}
-                              />
-                            </label>
-                            <label className="sqm-field">
-                              <span>Mq max promo</span>
-                              <input
-                                min="0"
-                                onChange={(event) =>
-                                  updatePromoFormat(index, "promoMaxAreaM2", event.target.value)
-                                }
-                                placeholder="0 = nessun limite"
-                                step="0.01"
-                                type="number"
-                                value={format.promoMaxAreaM2 || ""}
-                              />
-                            </label>
-                            <label className="sqm-field">
-                              <span>Sconto promo %</span>
-                              <input
-                                max="100"
-                                min="0"
-                                onChange={(event) =>
-                                  updatePromoFormat(index, "promoDiscountPercent", event.target.value)
-                                }
-                                step="0.01"
-                                type="number"
-                                value={format.promoDiscountPercent || ""}
-                              />
-                            </label>
                             <button
                               aria-label="Rimuovi formato promo"
                               className="sqm-icon-button"
@@ -1351,6 +1399,73 @@ export default function Index() {
                             >
                               ×
                             </button>
+                            <div className="sqm-promo-range-editor">
+                              <div className="sqm-promo-range-editor__header">
+                                <div>
+                                  <strong>Listino quantità promo</strong>
+                                  <p>Imposta il prezzo al mq per fasce di pezzi di questo formato.</p>
+                                </div>
+                                <button
+                                  className="sqm-button sqm-button--small"
+                                  onClick={() => addPromoQuantityRange(index)}
+                                  type="button"
+                                >
+                                  Aggiungi fascia
+                                </button>
+                              </div>
+                              <div className="sqm-promo-range-editor__list">
+                                {format.quantityRanges.map((range, rangeIndex) => (
+                                  <div className="sqm-range-row sqm-range-row--promo-quantity" key={rangeIndex}>
+                                    <label className="sqm-field">
+                                      <span>Da pezzi</span>
+                                      <input
+                                        min="1"
+                                        onChange={(event) =>
+                                          updatePromoQuantityRange(index, rangeIndex, "minQty", event.target.value)
+                                        }
+                                        step="1"
+                                        type="number"
+                                        value={range.minQty || 1}
+                                      />
+                                    </label>
+                                    <label className="sqm-field">
+                                      <span>A pezzi</span>
+                                      <input
+                                        min="0"
+                                        onChange={(event) =>
+                                          updatePromoQuantityRange(index, rangeIndex, "maxQty", event.target.value)
+                                        }
+                                        placeholder="+"
+                                        step="1"
+                                        type="number"
+                                        value={range.maxQty ?? ""}
+                                      />
+                                    </label>
+                                    <label className="sqm-field">
+                                      <span>Prezzo €/mq</span>
+                                      <input
+                                        min="0"
+                                        onChange={(event) =>
+                                          updatePromoQuantityRange(index, rangeIndex, "pricePerSqm", event.target.value)
+                                        }
+                                        placeholder="Es. 10,50"
+                                        step="0.01"
+                                        type="number"
+                                        value={range.pricePerSqm || ""}
+                                      />
+                                    </label>
+                                    <button
+                                      aria-label="Rimuovi fascia quantità promo"
+                                      className="sqm-icon-button"
+                                      onClick={() => removePromoQuantityRange(index, rangeIndex)}
+                                      type="button"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2589,23 +2704,54 @@ const styles = `
 
   .sqm-range-row--promo {
     grid-template-columns:
-      minmax(160px, 1.35fr)
+      minmax(160px, 1.45fr)
       minmax(90px, 1fr)
       minmax(90px, 1fr)
-      minmax(115px, 1fr)
-      minmax(115px, 1fr)
-      minmax(110px, 1fr)
       38px;
+    align-items: start;
   }
 
-  @media (max-width: 1520px) {
-    .sqm-range-row--promo {
-      grid-template-columns:
-        minmax(160px, 1.45fr)
-        minmax(90px, 1fr)
-        minmax(90px, 1fr)
-        minmax(110px, 1fr);
-    }
+  .sqm-promo-range-editor {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 10px;
+    padding-top: 4px;
+  }
+
+  .sqm-promo-range-editor__header {
+    align-items: start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .sqm-promo-range-editor__header strong {
+    color: var(--sqm-ink);
+    display: block;
+    font-size: 13px;
+  }
+
+  .sqm-promo-range-editor__header p {
+    color: var(--sqm-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    margin: 4px 0 0;
+  }
+
+  .sqm-promo-range-editor__list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .sqm-range-row--promo-quantity {
+    grid-template-columns:
+      minmax(92px, 1fr)
+      minmax(92px, 1fr)
+      minmax(120px, 1fr)
+      38px;
+    padding: 12px;
+    background: #ffffff;
+    border-style: dashed;
   }
 
   .sqm-field {
@@ -2892,9 +3038,18 @@ const styles = `
 
     .sqm-range-row--promo {
       grid-template-columns:
-        minmax(0, 1.4fr)
-        minmax(88px, 1fr)
-        minmax(88px, 1fr);
+        minmax(0, 1fr)
+        minmax(84px, 1fr)
+        minmax(84px, 1fr)
+        38px;
+    }
+
+    .sqm-range-row--promo-quantity {
+      grid-template-columns:
+        minmax(84px, 1fr)
+        minmax(84px, 1fr)
+        minmax(100px, 1fr)
+        38px;
     }
 
     .sqm-promo-meta {
@@ -2936,6 +3091,10 @@ const styles = `
       grid-template-columns: 1fr;
     }
 
+    .sqm-promo-range-editor__header {
+      display: grid;
+    }
+
     .sqm-option-card__header,
     .sqm-option-value__header {
       align-items: stretch;
@@ -2960,6 +3119,10 @@ const styles = `
     }
 
     .sqm-range-row--promo {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sqm-range-row--promo-quantity {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
