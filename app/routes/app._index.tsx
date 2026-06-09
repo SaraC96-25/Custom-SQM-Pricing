@@ -2127,11 +2127,11 @@ const styles = `
 
   .sqm-layout {
     display: grid;
-    grid-template-columns: minmax(250px, 340px) minmax(0, 1fr);
-    gap: 22px;
+    grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+    gap: 24px;
     align-items: start;
-    margin: 0 auto;
-    max-width: 1320px;
+    margin: 0;
+    max-width: none;
     width: 100%;
   }
 
@@ -2833,7 +2833,7 @@ const styles = `
 
   @media (max-width: 1120px) {
     .sqm-layout {
-      grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     }
 
     .sqm-range-row {
