@@ -15,7 +15,7 @@ import {
   validatePromoConfig,
   type PromoFormatConfig,
   type PromoFormatEntry,
-  type PromoQuantityRange,
+  type PromoPriceRange,
 } from "./sqm-promo-config";
 import {
   buildProductAdvancedConfigFromForm,
@@ -41,6 +41,7 @@ import {
 type DiscountRange = {
   min_m2: number;
   max_m2: number | null;
+  price_per_sqm: number;
   discount_percent: number;
   label?: string;
 };
@@ -90,13 +91,14 @@ type ConfigTab = "promo" | "options" | "calculation";
 const EMPTY_RANGE: DiscountRange = {
   min_m2: 0,
   max_m2: null,
+  price_per_sqm: 0,
   discount_percent: 0,
   label: "",
 };
 
-const EMPTY_PROMO_QUANTITY_RANGE: PromoQuantityRange = {
-  minQty: 1,
-  maxQty: null,
+const EMPTY_PROMO_PRICE_RANGE: PromoPriceRange = {
+  minM2: 0,
+  maxM2: null,
   pricePerSqm: 0,
 };
 
@@ -336,15 +338,17 @@ function normalizeRange(range: unknown): DiscountRange | null {
     maxSource === "" || maxSource === null || typeof maxSource === "undefined"
       ? null
       : toNumber(maxSource);
+  const pricePerSqm = toNumber(source.price_per_sqm ?? source.pricePerSqm);
   const discount = toNumber(source.discount_percent ?? source.discount);
   const label = String(source.label ?? "").trim();
 
-  if (min === null || discount === null) return null;
+  if (min === null) return null;
 
   return {
     min_m2: roundDecimal(Math.max(0, min)),
     max_m2: max === null ? null : roundDecimal(Math.max(0, max)),
-    discount_percent: roundDecimal(Math.max(0, discount)),
+    price_per_sqm: roundDecimal(Math.max(0, pricePerSqm ?? 0)),
+    discount_percent: roundDecimal(Math.max(0, discount ?? 0)),
     ...(label ? { label } : {}),
   };
 }
@@ -358,8 +362,8 @@ function validateRanges(ranges: DiscountRange[]) {
 
   ranges.forEach((range, index) => {
     const row = index + 1;
-    if (range.discount_percent < 0 || range.discount_percent > 100) {
-      errors.push(`Riga ${row}: la percentuale deve essere tra 0 e 100.`);
+    if (range.price_per_sqm < 0) {
+      errors.push(`Riga ${row}: il prezzo al mq non puo essere negativo.`);
     }
     if (range.max_m2 !== null && range.max_m2 < range.min_m2) {
       errors.push(`Riga ${row}: "A mq" non puo essere minore di "Da mq".`);
@@ -740,6 +744,7 @@ export default function Index() {
       {
         min_m2: current.at(-1)?.max_m2 ?? current.at(-1)?.min_m2 ?? 0,
         max_m2: null,
+        price_per_sqm: 0,
         discount_percent: 0,
         label: "",
       },
@@ -778,7 +783,7 @@ export default function Index() {
         if (field === "label") {
           return { ...format, label: value };
         }
-        if (field === "quantityRanges") {
+        if (field === "priceRanges") {
           return format;
         }
         return {
@@ -789,10 +794,10 @@ export default function Index() {
     }));
   };
 
-  const updatePromoQuantityRange = (
+  const updatePromoPriceRange = (
     formatIndex: number,
     rangeIndex: number,
-    field: keyof PromoQuantityRange,
+    field: keyof PromoPriceRange,
     value: string,
   ) => {
     setPromoConfig((current) => ({
@@ -802,21 +807,21 @@ export default function Index() {
 
         return {
           ...format,
-          quantityRanges: format.quantityRanges.map((range, currentRangeIndex) => {
+          priceRanges: format.priceRanges.map((range, currentRangeIndex) => {
             if (currentRangeIndex !== rangeIndex) return range;
 
-            if (field === "maxQty") {
+            if (field === "maxM2") {
               const nextValue = toNumber(value);
               return {
                 ...range,
-                maxQty: nextValue === null || nextValue <= 0 ? null : Math.max(1, Math.round(nextValue)),
+                maxM2: nextValue === null || nextValue <= 0 ? null : Math.max(0, nextValue),
               };
             }
 
-            if (field === "minQty") {
+            if (field === "minM2") {
               return {
                 ...range,
-                minQty: Math.max(1, Math.round(toNumber(value) ?? 1)),
+                minM2: Math.max(0, toNumber(value) ?? 0),
               };
             }
 
@@ -830,22 +835,22 @@ export default function Index() {
     }));
   };
 
-  const addPromoQuantityRange = (formatIndex: number) => {
+  const addPromoPriceRange = (formatIndex: number) => {
     setPromoConfig((current) => ({
       ...current,
       formats: current.formats.map((format, currentFormatIndex) => {
         if (currentFormatIndex !== formatIndex) return format;
 
-        const lastRange = format.quantityRanges[format.quantityRanges.length - 1];
-        const nextMinQty = lastRange?.maxQty ? lastRange.maxQty + 1 : (lastRange?.minQty ?? 0) + 1;
+        const lastRange = format.priceRanges[format.priceRanges.length - 1];
+        const nextMinM2 = lastRange?.maxM2 ?? lastRange?.minM2 ?? 0;
 
         return {
           ...format,
-          quantityRanges: [
-            ...format.quantityRanges,
+          priceRanges: [
+            ...format.priceRanges,
             {
-              ...EMPTY_PROMO_QUANTITY_RANGE,
-              minQty: Math.max(1, nextMinQty),
+              ...EMPTY_PROMO_PRICE_RANGE,
+              minM2: Math.max(0, nextMinM2),
             },
           ],
         };
@@ -853,16 +858,16 @@ export default function Index() {
     }));
   };
 
-  const removePromoQuantityRange = (formatIndex: number, rangeIndex: number) => {
+  const removePromoPriceRange = (formatIndex: number, rangeIndex: number) => {
     setPromoConfig((current) => ({
       ...current,
       formats: current.formats.map((format, currentFormatIndex) => {
         if (currentFormatIndex !== formatIndex) return format;
 
-        const nextRanges = format.quantityRanges.filter((_, currentRangeIndex) => currentRangeIndex !== rangeIndex);
+        const nextRanges = format.priceRanges.filter((_, currentRangeIndex) => currentRangeIndex !== rangeIndex);
         return {
           ...format,
-          quantityRanges: nextRanges.length ? nextRanges : [{ ...EMPTY_PROMO_QUANTITY_RANGE }],
+          priceRanges: nextRanges.length ? nextRanges : [{ ...EMPTY_PROMO_PRICE_RANGE }],
         };
       }),
     }));
@@ -877,7 +882,7 @@ export default function Index() {
           label: "",
           base: 0,
           height: 0,
-          quantityRanges: [{ ...EMPTY_PROMO_QUANTITY_RANGE }],
+          priceRanges: [{ ...EMPTY_PROMO_PRICE_RANGE }],
         },
       ],
     }));
@@ -1402,43 +1407,43 @@ export default function Index() {
                             <div className="sqm-promo-range-editor">
                               <div className="sqm-promo-range-editor__header">
                                 <div>
-                                  <strong>Listino quantità promo</strong>
-                                  <p>Imposta il prezzo al mq per fasce di pezzi di questo formato.</p>
+                                  <strong>Listino mq promo</strong>
+                                  <p>Imposta il prezzo al mq per fasce di mq totali di questo formato.</p>
                                 </div>
                                 <button
                                   className="sqm-button sqm-button--small"
-                                  onClick={() => addPromoQuantityRange(index)}
+                                  onClick={() => addPromoPriceRange(index)}
                                   type="button"
                                 >
                                   Aggiungi fascia
                                 </button>
                               </div>
                               <div className="sqm-promo-range-editor__list">
-                                {format.quantityRanges.map((range, rangeIndex) => (
+                                {format.priceRanges.map((range, rangeIndex) => (
                                   <div className="sqm-range-row sqm-range-row--promo-quantity" key={rangeIndex}>
                                     <label className="sqm-field">
-                                      <span>Da pezzi</span>
-                                      <input
-                                        min="1"
-                                        onChange={(event) =>
-                                          updatePromoQuantityRange(index, rangeIndex, "minQty", event.target.value)
-                                        }
-                                        step="1"
-                                        type="number"
-                                        value={range.minQty || 1}
-                                      />
-                                    </label>
-                                    <label className="sqm-field">
-                                      <span>A pezzi</span>
+                                      <span>Da mq</span>
                                       <input
                                         min="0"
                                         onChange={(event) =>
-                                          updatePromoQuantityRange(index, rangeIndex, "maxQty", event.target.value)
+                                          updatePromoPriceRange(index, rangeIndex, "minM2", event.target.value)
+                                        }
+                                        step="0.001"
+                                        type="number"
+                                        value={Number.isFinite(range.minM2) ? range.minM2 : ""}
+                                      />
+                                    </label>
+                                    <label className="sqm-field">
+                                      <span>A mq</span>
+                                      <input
+                                        min="0"
+                                        onChange={(event) =>
+                                          updatePromoPriceRange(index, rangeIndex, "maxM2", event.target.value)
                                         }
                                         placeholder="+"
-                                        step="1"
+                                        step="0.001"
                                         type="number"
-                                        value={range.maxQty ?? ""}
+                                        value={range.maxM2 ?? ""}
                                       />
                                     </label>
                                     <label className="sqm-field">
@@ -1446,7 +1451,7 @@ export default function Index() {
                                       <input
                                         min="0"
                                         onChange={(event) =>
-                                          updatePromoQuantityRange(index, rangeIndex, "pricePerSqm", event.target.value)
+                                          updatePromoPriceRange(index, rangeIndex, "pricePerSqm", event.target.value)
                                         }
                                         placeholder="Es. 10,50"
                                         step="0.01"
@@ -1455,9 +1460,9 @@ export default function Index() {
                                       />
                                     </label>
                                     <button
-                                      aria-label="Rimuovi fascia quantità promo"
+                                      aria-label="Rimuovi fascia mq promo"
                                       className="sqm-icon-button"
-                                      onClick={() => removePromoQuantityRange(index, rangeIndex)}
+                                      onClick={() => removePromoPriceRange(index, rangeIndex)}
                                       type="button"
                                     >
                                       ×
@@ -2063,22 +2068,21 @@ export default function Index() {
                             />
                           </label>
                           <label className="sqm-field">
-                            <span>Sconto %</span>
+                            <span>Prezzo €/mq</span>
                             <input
                               min="0"
-                              max="100"
                               onChange={(event) =>
                                 updateRange(
                                   index,
-                                  "discount_percent",
+                                  "price_per_sqm",
                                   event.target.value,
                                 )
                               }
                               step="0.01"
                               type="number"
                               value={
-                                Number.isFinite(range.discount_percent)
-                                  ? range.discount_percent
+                                Number.isFinite(range.price_per_sqm)
+                                  ? range.price_per_sqm
                                   : ""
                               }
                             />
@@ -2232,7 +2236,7 @@ export default function Index() {
               <div className="sqm-panel">
                 <h1>Seleziona un prodotto</h1>
                 <p className="sqm-muted">
-                  Cerca un prodotto per impostare range mq e sconti dedicati.
+                  Cerca un prodotto per impostare range mq e prezzi dedicati.
                 </p>
               </div>
             )}
