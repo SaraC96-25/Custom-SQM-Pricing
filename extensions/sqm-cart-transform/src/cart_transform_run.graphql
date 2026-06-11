@@ -6,15 +6,6 @@ query CartTransformRunInput {
       finalPriceCents: attribute(key: "_sqm_final_price_cents") {
         value
       }
-      calculatedPriceCents: attribute(key: "_sqm_calculated_price_cents") {
-        value
-      }
-      packagingPriceCents: attribute(key: "_sqm_packaging_price_cents") {
-        value
-      }
-      calculatedPriceLabel: attribute(key: "Prezzo calcolato") {
-        value
-      }
     }
   }
 }

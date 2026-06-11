@@ -20,15 +20,7 @@ export function cartTransformRun(input) {
   const operations = input.cart.lines
     .map((line) => {
       const finalCents = parseCents(line.finalPriceCents?.value);
-      const calculatedCents =
-        parseCents(line.calculatedPriceCents?.value) ??
-        parseMoneyCents(line.calculatedPriceLabel?.value);
-      const packagingCents = parseCents(line.packagingPriceCents?.value) ?? 0;
-      const fallbackCents = calculatedCents != null ? calculatedCents + packagingCents : null;
-      const cents =
-        finalCents != null && fallbackCents != null
-          ? Math.max(finalCents, fallbackCents)
-          : finalCents ?? fallbackCents;
+      const cents = finalCents;
 
       if (!cents) return null;
 
@@ -66,35 +58,6 @@ function parseCents(value) {
   if (!Number.isFinite(cents) || cents <= 0) return null;
 
   return cents;
-}
-
-/**
- * @param {unknown} value
- * @returns {number | null}
- */
-function parseMoneyCents(value) {
-  if (typeof value !== "string") return null;
-
-  const normalized = value
-    .replace(/\s/g, "")
-    .replace(/[^\d,.-]/g, "");
-
-  if (!normalized) return null;
-
-  const commaIndex = normalized.lastIndexOf(",");
-  const dotIndex = normalized.lastIndexOf(".");
-  const decimalSeparator =
-    commaIndex > -1 && commaIndex > dotIndex ? "," : dotIndex > -1 ? "." : "";
-  const decimalValue = decimalSeparator
-    ? normalized
-        .replace(new RegExp(`\\${decimalSeparator === "," ? "." : ","}`, "g"), "")
-        .replace(decimalSeparator, ".")
-    : normalized;
-  const amount = Number.parseFloat(decimalValue);
-
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-
-  return Math.round(amount * 100);
 }
 
 /**
