@@ -30,7 +30,7 @@ Su Render non usare `db.[PROJECT_REF].supabase.co:5432` per `DIRECT_URL`, a meno
 ```env
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
-SCOPES=read_cart_transforms,write_cart_transforms,write_metaobject_definitions,read_products,write_products
+SCOPES=read_cart_transforms,write_cart_transforms,read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects,read_products,write_products
 SHOPIFY_APP_URL=https://custom-sqm-pricing-wowstampa.onrender.com
 DATABASE_URL=
 DIRECT_URL=
