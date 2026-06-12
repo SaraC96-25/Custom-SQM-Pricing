@@ -90,6 +90,22 @@ const METAOBJECT_DEFINITION_QUERY = `#graphql
   }
 `;
 
+const METAOBJECT_DEFINITIONS_QUERY = `#graphql
+  query TechSpecsMetaobjectDefinitions {
+    metaobjectDefinitions(first: 250) {
+      nodes {
+        type
+        fieldDefinitions {
+          key
+          name
+          type { name }
+          validations { name value }
+        }
+      }
+    }
+  }
+`;
+
 const FIND_PRODUCT_QUERY = `#graphql
   query TechSpecsFindProduct($query: String!) {
     products(first: 1, query: $query) {
@@ -345,6 +361,89 @@ function findField(
   );
 }
 
+async function getMetaobjectDefinitions(admin: any): Promise<MetaobjectDefinition[]> {
+  const data = await adminGraphql(admin, METAOBJECT_DEFINITIONS_QUERY, {});
+  return data.metaobjectDefinitions?.nodes ?? [];
+}
+
+function hasField(
+  definition: MetaobjectDefinition,
+  candidates: string[],
+  typeNames: string[] = [],
+) {
+  try {
+    findField(definition, candidates, typeNames);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scoreDefinition(type: string, words: string[]) {
+  const normalized = type.toLowerCase();
+  return words.reduce(
+    (score, word) => score + (normalized.includes(word) ? 1 : 0),
+    0,
+  );
+}
+
+function inferGroupDefinition(definitions: MetaobjectDefinition[]) {
+  const candidates = definitions
+    .filter(
+      (definition) =>
+        hasField(definition, ["title", "label", "name", "scheda"], [
+          "single_line_text_field",
+          "multi_line_text_field",
+        ]) &&
+        hasField(definition, ["specs", "specifiche", "items", "rows", "voci"], [
+          "list.metaobject_reference",
+        ]),
+    )
+    .sort(
+      (first, second) =>
+        scoreDefinition(second.type, ["tech", "spec", "scheda"]) -
+        scoreDefinition(first.type, ["tech", "spec", "scheda"]),
+    );
+
+  if (!candidates.length) {
+    throw new Error(
+      "Non riesco a trovare un metaobject scheda con campi tipo title/specs.",
+    );
+  }
+
+  return candidates[0];
+}
+
+function inferItemDefinition(definitions: MetaobjectDefinition[], groupType: string) {
+  const candidates = definitions
+    .filter(
+      (definition) =>
+        definition.type !== groupType &&
+        hasField(definition, ["label", "title", "name", "nome"], [
+          "single_line_text_field",
+          "multi_line_text_field",
+        ]) &&
+        hasField(definition, ["value", "valore", "text", "testo", "content"], [
+          "single_line_text_field",
+          "multi_line_text_field",
+          "rich_text_field",
+        ]),
+    )
+    .sort(
+      (first, second) =>
+        scoreDefinition(second.type, ["tech", "spec", "item", "row", "voce"]) -
+        scoreDefinition(first.type, ["tech", "spec", "item", "row", "voce"]),
+    );
+
+  if (!candidates.length) {
+    throw new Error(
+      "Non riesco a trovare un metaobject voce con campi tipo label/value.",
+    );
+  }
+
+  return candidates[0];
+}
+
 async function discoverImportConfig(admin: any): Promise<ImportConfig> {
   const metafieldData = await adminGraphql(admin, METAFIELD_DEFINITION_QUERY, {
     namespace: METAFIELD_NAMESPACE,
@@ -357,25 +456,25 @@ async function discoverImportConfig(admin: any): Promise<ImportConfig> {
     throw new Error(`Metafield product.${METAFIELD_NAMESPACE}.${METAFIELD_KEY} non trovato.`);
   }
 
-  const groupType = getValidationValue(metafieldDefinition, [
+  const allDefinitions = await getMetaobjectDefinitions(admin);
+  const configuredGroupType = getValidationValue(metafieldDefinition, [
     "metaobject_definition_type",
     "metaobject_type",
   ]);
 
-  if (!groupType) {
-    throw new Error(
-      `Il metafield product.${METAFIELD_NAMESPACE}.${METAFIELD_KEY} non dichiara il tipo metaobject.`,
-    );
+  let groupDefinition: MetaobjectDefinition | null = null;
+
+  if (configuredGroupType) {
+    const groupDefinitionData = await adminGraphql(admin, METAOBJECT_DEFINITION_QUERY, {
+      type: configuredGroupType,
+    });
+    groupDefinition = groupDefinitionData.metaobjectDefinitionByType;
+  } else {
+    groupDefinition = inferGroupDefinition(allDefinitions);
   }
 
-  const groupDefinitionData = await adminGraphql(admin, METAOBJECT_DEFINITION_QUERY, {
-    type: groupType,
-  });
-  const groupDefinition: MetaobjectDefinition | null =
-    groupDefinitionData.metaobjectDefinitionByType;
-
   if (!groupDefinition) {
-    throw new Error(`Definizione metaobject '${groupType}' non trovata.`);
+    throw new Error(`Definizione metaobject '${configuredGroupType}' non trovata.`);
   }
 
   const titleField = findField(groupDefinition, ["title", "label", "name", "scheda"], [
@@ -385,23 +484,24 @@ async function discoverImportConfig(admin: any): Promise<ImportConfig> {
   const specsField = findField(groupDefinition, ["specs", "specifiche", "items", "rows", "voci"], [
     "list.metaobject_reference",
   ]);
-  const itemType = getValidationValue(specsField, [
+  const configuredItemType = getValidationValue(specsField, [
     "metaobject_definition_type",
     "metaobject_type",
   ]);
 
-  if (!itemType) {
-    throw new Error(`Il campo '${groupType}.${specsField.key}' non dichiara il tipo metaobject interno.`);
+  let itemDefinition: MetaobjectDefinition | null = null;
+
+  if (configuredItemType) {
+    const itemDefinitionData = await adminGraphql(admin, METAOBJECT_DEFINITION_QUERY, {
+      type: configuredItemType,
+    });
+    itemDefinition = itemDefinitionData.metaobjectDefinitionByType;
+  } else {
+    itemDefinition = inferItemDefinition(allDefinitions, groupDefinition.type);
   }
 
-  const itemDefinitionData = await adminGraphql(admin, METAOBJECT_DEFINITION_QUERY, {
-    type: itemType,
-  });
-  const itemDefinition: MetaobjectDefinition | null =
-    itemDefinitionData.metaobjectDefinitionByType;
-
   if (!itemDefinition) {
-    throw new Error(`Definizione metaobject '${itemType}' non trovata.`);
+    throw new Error(`Definizione metaobject '${configuredItemType}' non trovata.`);
   }
 
   const labelField = findField(itemDefinition, ["label", "title", "name", "nome"], [
@@ -424,10 +524,10 @@ async function discoverImportConfig(admin: any): Promise<ImportConfig> {
     namespace: METAFIELD_NAMESPACE,
     key: METAFIELD_KEY,
     metafieldType: metafieldDefinition.type.name,
-    groupType,
+    groupType: groupDefinition.type,
     groupTitleKey: titleField.key,
     groupSpecsKey: specsField.key,
-    itemType,
+    itemType: itemDefinition.type,
     itemLabelKey: labelField.key,
     itemValueKey: valueField.key,
     itemValueType: valueField.type.name,
