@@ -152,14 +152,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return null;
 };
 
-function splitCsvLine(line: string) {
-  const cells: string[] = [];
+function parseCsvRecords(text: string) {
+  const records: string[][] = [];
+  let cells: string[] = [];
   let current = "";
   let quoted = false;
 
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
 
     if (char === '"' && quoted && next === '"') {
       current += '"';
@@ -178,24 +179,43 @@ function splitCsvLine(line: string) {
       continue;
     }
 
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") {
+        index += 1;
+      }
+
+      cells.push(current);
+      if (cells.some((cell) => cell.trim())) {
+        records.push(cells.map((cell) => cell.trim()));
+      }
+      cells = [];
+      current = "";
+      continue;
+    }
+
     current += char;
   }
 
   cells.push(current);
-  return cells.map((cell) => cell.trim());
+  if (cells.some((cell) => cell.trim())) {
+    records.push(cells.map((cell) => cell.trim()));
+  }
+
+  if (quoted) {
+    throw new Error("CSV non valido: virgolette non chiuse.");
+  }
+
+  return records;
 }
 
 function parseCsv(text: string): CsvRow[] {
-  const lines = text
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter((line) => line.trim());
+  const records = parseCsvRecords(text.replace(/^\uFEFF/, ""));
 
-  if (!lines.length) {
+  if (!records.length) {
     throw new Error("Il CSV e vuoto.");
   }
 
-  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
+  const headers = records[0].map((header) => header.trim());
   const required = ["product_handle", "scheda", "label", "value"];
   const missing = required.filter((key) => !headers.includes(key));
 
@@ -203,8 +223,7 @@ function parseCsv(text: string): CsvRow[] {
     throw new Error(`Colonne CSV mancanti: ${missing.join(", ")}.`);
   }
 
-  return lines.slice(1).map((line, index) => {
-    const cells = splitCsvLine(line);
+  return records.slice(1).map((cells, index) => {
     const raw: Record<string, string> = {};
     headers.forEach((header, headerIndex) => {
       raw[header] = cells[headerIndex] ?? "";
