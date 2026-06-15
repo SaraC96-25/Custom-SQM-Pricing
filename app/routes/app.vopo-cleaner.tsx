@@ -36,13 +36,18 @@ type CleanPatch = {
   removedCount: number;
 };
 
+type InsertPatch = Omit<CleanPatch, "removedCount"> & {
+  insertedCount: number;
+};
+
 type CleanerResult = {
   ok: boolean;
+  operation?: "remove" | "insert";
   mode?: "preview" | "apply";
   scannedProducts?: number;
   matchedProducts?: number;
   matchedMetafields?: number;
-  removedOptions?: number;
+  affectedOptions?: number;
   details?: string[];
   errors?: string[];
 };
@@ -183,6 +188,129 @@ function matchesOption(value: unknown, criterion: MatchCriterion, searchText: st
   return haystack.some((text) => normalize(text).includes(needle));
 }
 
+function titleCase(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function slugify(value: string) {
+  return (
+    normalize(value)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "prodotto"
+  );
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const SIZE_OPTIONS = [
+  { value: "XXS", name: "Double Extra Small" },
+  { value: "XS", name: "Extra Small" },
+  { value: "S", name: "Small" },
+  { value: "M", name: "Medium" },
+  { value: "L", name: "Large" },
+  { value: "XL", name: "Extra Large" },
+  { value: "XXL", name: "Double Extra Large" },
+  { value: "3XL", name: "Triple Extra Large" },
+  { value: "4XL", name: "Quadruple Extra Large" },
+  { value: "5XL", name: "Quintuple Extra Large" },
+];
+
+function getSizeRange(fromSize: string, toSize: string) {
+  const fromIndex = SIZE_OPTIONS.findIndex((size) => size.value === fromSize);
+  const toIndex = SIZE_OPTIONS.findIndex((size) => size.value === toSize);
+  const safeFrom = fromIndex >= 0 ? fromIndex : 0;
+  const safeTo = toIndex >= 0 ? toIndex : SIZE_OPTIONS.length - 1;
+  const start = Math.min(safeFrom, safeTo);
+  const end = Math.max(safeFrom, safeTo);
+
+  return SIZE_OPTIONS.slice(start, end + 1);
+}
+
+function buildSizesInstructionHtml(productType: string, fromSize: string, toSize: string) {
+  const displayType = titleCase(productType.trim() || "Prodotto");
+  const packKey = `taglie-${slugify(productType)}`;
+  const propertyName = `Taglie ${displayType}`;
+  const sizes = getSizeRange(fromSize, toSize);
+
+  const items = sizes
+    .map(
+      (size) => `
+  <div class="ws-sizes__item">
+    <div class="ws-sizes__left">
+      <span class="ws-sizes__badge">${escapeHtml(size.value)}</span>
+      <span class="ws-sizes__name">${escapeHtml(size.name)}</span>
+    </div>
+    <input class="ws-size-qty" type="number" min="0" value="0" inputmode="numeric">
+  </div>`,
+    )
+    .join("\n");
+
+  return `<div class="bcpo-label"><label><span class="ws-bcpo-icon"><img src="https://cdn.shopify.com/s/files/1/0555/0601/0321/files/ruler.svg?v=1772452690" alt="" loading="lazy" decoding="async" width="20" height="20" class="ws-bcpo-icon__img"></span><span class="bcpo-title" data-ws-icon-done="1">Taglia:</span></label></div>
+
+<div class="ws-sizes ws-sizes--cards" data-pack-key="${escapeHtml(packKey)}">
+${items}
+
+  <input type="hidden" name="properties[${escapeHtml(propertyName)}]" data-ws-sizes-summary value="">
+  <div class="ws-sizes__error" aria-live="polite" hidden></div>
+</div>
+<style>
+.ws-sizes--cards{display:grid;gap:10px}
+.ws-sizes__left{display:flex;align-items:center;gap:12px}
+.ws-size-qty{width:88px;height:25px;padding:0 10px;text-align:right;font-weight:700;font-size:16px;border-radius:10px;border:1px solid rgba(0,0,0,.18);background:#fff}
+.ws-size-qty::-webkit-outer-spin-button,.ws-size-qty::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.ws-size-qty{-moz-appearance:textfield}
+.ws-sizes__error{padding:10px 12px;border-radius:12px;border:1px solid rgba(231,76,60,.35);background:rgba(231,76,60,.1);font-weight:600}
+.ws-sizes__badge{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(0,0,0,.05);font-weight:700;font-size:13px!important}
+.ws-sizes__name{font-weight:600;font-size:12px!important}
+.ws-sizes__item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border:1px solid rgba(0,0,0,.08);border-radius:14px;background:#fff}
+</style>
+<script>
+(function(){
+  function initWsSizes(root){
+    if(!root || root.dataset.wsSizesBound === '1') return;
+    root.dataset.wsSizesBound = '1';
+    var hidden = root.querySelector('[data-ws-sizes-summary]');
+    var error = root.querySelector('.ws-sizes__error');
+    var inputs = Array.prototype.slice.call(root.querySelectorAll('.ws-size-qty'));
+
+    function sync(){
+      var parts = [];
+      inputs.forEach(function(input){
+        var item = input.closest('.ws-sizes__item');
+        var badge = item ? item.querySelector('.ws-sizes__badge') : null;
+        var qty = Math.max(0, parseInt(input.value || '0', 10) || 0);
+        input.value = String(qty);
+        if(qty > 0 && badge) parts.push((badge.textContent || '').trim() + ': ' + qty);
+      });
+      if(hidden) hidden.value = parts.join(', ');
+      if(error){
+        error.hidden = true;
+        error.textContent = '';
+      }
+    }
+
+    inputs.forEach(function(input){
+      input.addEventListener('input', sync);
+      input.addEventListener('change', sync);
+    });
+    sync();
+  }
+
+  document.querySelectorAll('.ws-sizes[data-pack-key="${escapeHtml(packKey)}"]').forEach(initWsSizes);
+})();
+</script>`;
+}
+
 function cleanJson(value: unknown, criterion: MatchCriterion, searchText: string): {
   value: unknown;
   removedCount: number;
@@ -221,6 +349,123 @@ function cleanJson(value: unknown, criterion: MatchCriterion, searchText: string
   return { value, removedCount: 0 };
 }
 
+function scoreInsertArray(items: unknown[]): number {
+  if (!items.length) return 1;
+
+  return items.reduce<number>((score, item) => {
+    if (!isRecord(item)) return score;
+    const keys = Object.keys(item).map(normalize).join(" ");
+    const values = collectStrings(item).slice(0, 20).map(normalize).join(" ");
+    let nextScore = score;
+    if (/(title|label|name|nome)/.test(keys)) nextScore += 3;
+    if (/(type|option|field|display)/.test(keys)) nextScore += 3;
+    if (/(instructions|instruction|html|content|description|help)/.test(keys)) nextScore += 4;
+    if (/(instructions|instruction|virtual option|bcpo|vopo)/.test(values)) nextScore += 3;
+    return nextScore;
+  }, 0);
+}
+
+function buildInstructionOptionFromTemplate(template: unknown, html: string) {
+  const fallback = {
+    type: "instructions",
+    option_type: "instructions",
+    input_type: "instructions",
+    field_type: "instructions",
+    title: "Taglia",
+    label: "Taglia",
+    name: "Taglia",
+    instructions: html,
+    content: html,
+    description: html,
+    html,
+    required: false,
+  };
+
+  if (!isRecord(template)) return fallback;
+
+  const next: Record<string, unknown> = { ...template };
+  Object.keys(next).forEach((key) => {
+    const normalizedKey = normalize(key);
+    if (/(title|label|name|nome)/.test(normalizedKey)) next[key] = "Taglia";
+    if (/(type|option_type|input_type|field_type|display_type|kind)/.test(normalizedKey)) {
+      next[key] = "instructions";
+    }
+    if (/(instructions|instruction|html|content|description|help_text|text|body)/.test(normalizedKey)) {
+      next[key] = html;
+    }
+    if (/(required)/.test(normalizedKey)) next[key] = false;
+    if (/(id|uuid)/.test(normalizedKey)) next[key] = `ws-taglie-${Date.now()}`;
+  });
+
+  return {
+    ...fallback,
+    ...next,
+    title: "Taglia",
+    label: "Taglia",
+    name: "Taglia",
+    instructions: html,
+    content: html,
+    html,
+  };
+}
+
+function insertInstructionJson(value: unknown, html: string): {
+  value: unknown;
+  insertedCount: number;
+} {
+  type Candidate = { path: Array<string | number>; score: number; template: unknown };
+  const candidates: Candidate[] = [];
+
+  function visit(node: unknown, path: Array<string | number>) {
+    if (Array.isArray(node)) {
+      candidates.push({
+        path,
+        score: scoreInsertArray(node),
+        template:
+          node.find(
+            (item) =>
+              isRecord(item) &&
+              matchesOption(item, "type", "instructions"),
+          ) ?? node.find(isRecord),
+      });
+      node.forEach((child, index) => visit(child, [...path, index]));
+      return;
+    }
+
+    if (isRecord(node)) {
+      Object.entries(node).forEach(([key, child]) => visit(child, [...path, key]));
+    }
+  }
+
+  visit(value, []);
+  const best = candidates.sort((first, second) => second.score - first.score)[0];
+  if (!best) return { value, insertedCount: 0 };
+
+  function cloneAndInsert(node: unknown, path: Array<string | number>): unknown {
+    if (!path.length) {
+      if (!Array.isArray(node)) return node;
+      const alreadyExists = node.some((item) => collectStrings(item).some((text) => text.includes("data-pack-key=")));
+      if (alreadyExists) return node;
+      return [...node, buildInstructionOptionFromTemplate(best.template, html)];
+    }
+
+    const [head, ...tail] = path;
+    if (Array.isArray(node) && typeof head === "number") {
+      return node.map((child, index) => (index === head ? cloneAndInsert(child, tail) : child));
+    }
+    if (isRecord(node) && typeof head === "string") {
+      return { ...node, [head]: cloneAndInsert(node[head], tail) };
+    }
+    return node;
+  }
+
+  const nextValue = cloneAndInsert(value, best.path);
+  return {
+    value: nextValue,
+    insertedCount: nextValue === value ? 0 : 1,
+  };
+}
+
 function looksLikeVopoMetafield(metafield: VopoMetafield) {
   const descriptor = normalize(`${metafield.namespace} ${metafield.key} ${metafield.type}`);
   if (/(bcpo|vopo|product option|product_option|custom option|custom_option)/.test(descriptor)) {
@@ -247,7 +492,10 @@ function getCandidateMetafields(
   });
 }
 
-async function setMetafields(admin: any, patches: CleanPatch[]) {
+async function setMetafields(
+  admin: any,
+  patches: Array<Pick<CleanPatch, "productId" | "namespace" | "key" | "type" | "nextValue">>,
+) {
   for (let index = 0; index < patches.length; index += 25) {
     const batch = patches.slice(index, index + 25);
     const data = await adminGraphql(admin, METAFIELDS_SET_MUTATION, {
@@ -269,12 +517,16 @@ async function setMetafields(admin: any, patches: CleanPatch[]) {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
+  const operation = String(formData.get("operation") || "remove") === "insert" ? "insert" : "remove";
   const mode = String(formData.get("mode") || "preview") === "apply" ? "apply" : "preview";
   const productQuery = String(formData.get("productQuery") || "").trim();
   const namespace = String(formData.get("namespace") || "").trim();
   const key = String(formData.get("key") || "").trim();
   const criterion = String(formData.get("criterion") || "any") as MatchCriterion;
   const searchText = String(formData.get("searchText") || "").trim();
+  const productType = String(formData.get("productType") || "").trim();
+  const fromSize = String(formData.get("fromSize") || "XXS").trim();
+  const toSize = String(formData.get("toSize") || "XXL").trim();
   const productLimit = Math.min(
     100,
     Math.max(1, parseInt(String(formData.get("productLimit") || "25"), 10) || 25),
@@ -284,10 +536,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { ok: false, errors: ["Inserisci una query prodotti."] } satisfies CleanerResult;
   }
 
-  if (!searchText) {
+  if (operation === "remove" && !searchText) {
     return {
       ok: false,
       errors: ["Inserisci il testo da cercare nella variante/opzione VOPO."],
+    } satisfies CleanerResult;
+  }
+
+  if (operation === "insert" && !productType) {
+    return {
+      ok: false,
+      errors: ["Inserisci il tipo prodotto per generare data-pack-key e property."],
     } satisfies CleanerResult;
   }
 
@@ -297,12 +556,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       first: productLimit,
     });
     const products: VopoProduct[] = data.products?.nodes ?? [];
-    const patches: CleanPatch[] = [];
+    const patches: Array<CleanPatch | InsertPatch> = [];
+    const instructionHtml = operation === "insert"
+      ? buildSizesInstructionHtml(productType, fromSize, toSize)
+      : "";
 
     products.forEach((product) => {
       getCandidateMetafields(product, namespace, key).forEach((metafield) => {
         const parsed = maybeParseJson(metafield.value);
         if (!parsed) return;
+
+        if (operation === "insert") {
+          const inserted = insertInstructionJson(parsed, instructionHtml);
+          if (!inserted.insertedCount) return;
+
+          patches.push({
+            productId: product.id,
+            productTitle: product.title,
+            productHandle: product.handle,
+            namespace: metafield.namespace,
+            key: metafield.key,
+            type: metafield.type,
+            nextValue: JSON.stringify(inserted.value),
+            insertedCount: inserted.insertedCount,
+          });
+          return;
+        }
 
         const cleaned = cleanJson(parsed, criterion, searchText);
         if (!cleaned.removedCount) return;
@@ -325,18 +604,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     const matchedProducts = new Set(patches.map((patch) => patch.productId)).size;
-    const removedOptions = patches.reduce((total, patch) => total + patch.removedCount, 0);
+    const affectedOptions = patches.reduce((total, patch) => {
+      if ("removedCount" in patch) return total + patch.removedCount;
+      return total + patch.insertedCount;
+    }, 0);
 
     return {
       ok: true,
+      operation,
       mode,
       scannedProducts: products.length,
       matchedProducts,
       matchedMetafields: patches.length,
-      removedOptions,
+      affectedOptions,
       details: patches.map(
-        (patch) =>
-          `${patch.productTitle} (${patch.productHandle}) - ${patch.namespace}.${patch.key}: ${patch.removedCount} elementi ${mode === "apply" ? "rimossi" : "da rimuovere"}`,
+        (patch) => {
+          const count = "removedCount" in patch ? patch.removedCount : patch.insertedCount;
+          const actionLabel = operation === "insert"
+            ? mode === "apply" ? "inseriti" : "da inserire"
+            : mode === "apply" ? "rimossi" : "da rimuovere";
+
+          return `${patch.productTitle} (${patch.productHandle}) - ${patch.namespace}.${patch.key}: ${count} elementi ${actionLabel}`;
+        },
       ),
     } satisfies CleanerResult;
   } catch (error) {
@@ -353,6 +642,7 @@ export default function VopoCleaner() {
   const shopify = useAppBridge();
   const isSubmitting = navigation.state !== "idle";
   const submittingMode = navigation.formData?.get("mode");
+  const submittingOperation = navigation.formData?.get("operation");
 
   useEffect(() => {
     if (actionData?.ok && actionData.mode === "apply") {
@@ -366,14 +656,16 @@ export default function VopoCleaner() {
       <div className="vopo-cleaner">
         <section className="vopo-cleaner__card">
           <p className="vopo-cleaner__kicker">Pulizia massiva sicura</p>
-          <h1>Cancella opzioni VOPO/BCPO da più prodotti</h1>
+          <h1>Gestisci opzioni VOPO/BCPO da più prodotti</h1>
           <p>
-            Cerca i prodotti, individua i metafield JSON candidati e rimuove dagli array
-            le opzioni che corrispondono al criterio scelto. Prima usa sempre
+            Cerca i prodotti, individua i metafield JSON candidati e rimuove o inserisce
+            opzioni instruction. Prima usa sempre
             <strong> Anteprima</strong>.
           </p>
 
-          <Form method="post" className="vopo-cleaner__form">
+          <Form method="post" className="vopo-cleaner__form vopo-cleaner__section">
+            <input name="operation" type="hidden" value="remove" />
+            <h2>Rimuovi variante/opzione</h2>
             <label className="vopo-cleaner__field vopo-cleaner__field--wide">
               <span>Query prodotti Shopify</span>
               <input
@@ -427,7 +719,9 @@ export default function VopoCleaner() {
                 type="submit"
                 value="preview"
               >
-                {isSubmitting && submittingMode === "preview" ? "Analisi..." : "Anteprima"}
+                {isSubmitting && submittingOperation === "remove" && submittingMode === "preview"
+                  ? "Analisi..."
+                  : "Anteprima rimozione"}
               </button>
               <button
                 className="vopo-cleaner__button vopo-cleaner__button--danger"
@@ -436,9 +730,93 @@ export default function VopoCleaner() {
                 type="submit"
                 value="apply"
               >
-                {isSubmitting && submittingMode === "apply"
+                {isSubmitting && submittingOperation === "remove" && submittingMode === "apply"
                   ? "Cancello..."
                   : "Applica cancellazione"}
+              </button>
+            </div>
+          </Form>
+
+          <Form method="post" className="vopo-cleaner__form vopo-cleaner__section">
+            <input name="operation" type="hidden" value="insert" />
+            <h2>Inserisci instruction taglie</h2>
+
+            <label className="vopo-cleaner__field vopo-cleaner__field--wide">
+              <span>Query prodotti Shopify</span>
+              <input
+                name="productQuery"
+                placeholder="es. tag:abbigliamento oppure title:*calzoncini*"
+                required
+              />
+            </label>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Limite prodotti</span>
+                <input name="productLimit" type="number" min="1" max="100" defaultValue="25" />
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>Tipo prodotto</span>
+                <input name="productType" placeholder="es. calzoncini, camicia, t-shirt" required />
+              </label>
+            </div>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Da taglia</span>
+                <select name="fromSize" defaultValue="XXS">
+                  {SIZE_OPTIONS.map((size) => (
+                    <option key={size.value} value={size.value}>
+                      {size.value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>A taglia</span>
+                <select name="toSize" defaultValue="XXL">
+                  {SIZE_OPTIONS.map((size) => (
+                    <option key={size.value} value={size.value}>
+                      {size.value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Namespace metafield opzionale</span>
+                <input name="namespace" placeholder="lascia vuoto per auto-detect" />
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>Key metafield opzionale</span>
+                <input name="key" placeholder="lascia vuoto per auto-detect" />
+              </label>
+            </div>
+
+            <div className="vopo-cleaner__actions">
+              <button
+                className="vopo-cleaner__button"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="preview"
+              >
+                {isSubmitting && submittingOperation === "insert" && submittingMode === "preview"
+                  ? "Analisi..."
+                  : "Anteprima inserimento"}
+              </button>
+              <button
+                className="vopo-cleaner__button vopo-cleaner__button--insert"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="apply"
+              >
+                {isSubmitting && submittingOperation === "insert" && submittingMode === "apply"
+                  ? "Inserisco..."
+                  : "Applica inserimento"}
               </button>
             </div>
           </Form>
@@ -461,12 +839,16 @@ export default function VopoCleaner() {
           {actionData?.ok ? (
             <div className="vopo-cleaner__success">
               <strong>
-                {actionData.mode === "apply" ? "Cancellazione completata" : "Anteprima completata"}
+                {actionData.mode === "apply"
+                  ? actionData.operation === "insert"
+                    ? "Inserimento completato"
+                    : "Cancellazione completata"
+                  : "Anteprima completata"}
               </strong>
               <p>
                 Prodotti analizzati: {actionData.scannedProducts}. Prodotti con match:{" "}
                 {actionData.matchedProducts}. Metafield coinvolti:{" "}
-                {actionData.matchedMetafields}. Elementi: {actionData.removedOptions}.
+                {actionData.matchedMetafields}. Elementi: {actionData.affectedOptions}.
               </p>
               {actionData.details?.length ? (
                 <div className="vopo-cleaner__details">
@@ -547,6 +929,17 @@ const styles = `
     margin-top: 22px;
   }
 
+  .vopo-cleaner__section {
+    padding: 18px;
+    border: 1px solid #dce8df;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #fbfefc 0%, #ffffff 100%);
+  }
+
+  .vopo-cleaner__section + .vopo-cleaner__section {
+    margin-top: 18px;
+  }
+
   .vopo-cleaner__grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -598,6 +991,11 @@ const styles = `
   .vopo-cleaner__button--danger {
     background: linear-gradient(135deg, #ef4444 0%, #b42318 100%);
     box-shadow: 0 12px 24px rgba(180, 35, 24, .16);
+  }
+
+  .vopo-cleaner__button--insert {
+    background: linear-gradient(135deg, #2563eb 0%, #0f766e 100%);
+    box-shadow: 0 12px 24px rgba(37, 99, 235, .16);
   }
 
   .vopo-cleaner__button:disabled {
