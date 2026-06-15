@@ -349,6 +349,13 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     body: html,
     value: html,
     default_value: html,
+    defaultValue: html,
+    default: html,
+    message: html,
+    note: html,
+    help_text: html,
+    tooltip: html,
+    values: [{ key: html, value: html, price: "" }],
     required: false,
     unique,
     conditional_option: "",
@@ -369,9 +376,10 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     if (/(type|option_type|input_type|field_type|display_type|kind)/.test(normalizedKey)) {
       next[key] = "instructions";
     }
-    if (/(instructions|instruction|html|content|description|help_text|text|body|value|default_value)/.test(normalizedKey)) {
+    if (/(instructions|instruction|html|content|description|help_text|text|body|value|default_value|defaultvalue|default|message|note|tooltip)/.test(normalizedKey)) {
       next[key] = html;
     }
+    if (normalizedKey === "values") next[key] = [{ key: html, value: html, price: "" }];
     if (/(required)/.test(normalizedKey)) next[key] = false;
     if (/(id|uuid|unique)/.test(normalizedKey)) next[key] = unique;
   });
@@ -391,6 +399,13 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     body: html,
     value: html,
     default_value: html,
+    defaultValue: html,
+    default: html,
+    message: html,
+    note: html,
+    help_text: html,
+    tooltip: html,
+    values: [{ key: html, value: html, price: "" }],
   };
 }
 
