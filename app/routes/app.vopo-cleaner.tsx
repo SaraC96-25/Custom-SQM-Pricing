@@ -262,18 +262,7 @@ ${items}
 
   <input type="hidden" name="properties[${escapeHtml(propertyName)}]" data-ws-sizes-summary value="">
   <div class="ws-sizes__error" aria-live="polite" hidden></div>
-</div>
-<style>
-.ws-sizes--cards{display:grid;gap:10px}
-.ws-sizes__left{display:flex;align-items:center;gap:12px}
-.ws-size-qty{width:88px;height:25px;padding:0 10px;text-align:right;font-weight:700;font-size:16px;border-radius:10px;border:1px solid rgba(0,0,0,.18);background:#fff}
-.ws-size-qty::-webkit-outer-spin-button,.ws-size-qty::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.ws-size-qty{-moz-appearance:textfield}
-.ws-sizes__error{padding:10px 12px;border-radius:12px;border:1px solid rgba(231,76,60,.35);background:rgba(231,76,60,.1);font-weight:600}
-.ws-sizes__badge{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(0,0,0,.05);font-weight:700;font-size:13px!important}
-.ws-sizes__name{font-weight:600;font-size:12px!important}
-.ws-sizes__item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border:1px solid rgba(0,0,0,.08);border-radius:14px;background:#fff}
-</style>`;
+</div>`;
 }
 
 function cleanJson(value: unknown, criterion: MatchCriterion, searchText: string): {
