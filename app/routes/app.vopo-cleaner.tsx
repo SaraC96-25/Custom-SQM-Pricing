@@ -341,9 +341,14 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     input_type: "instructions",
     field_type: "instructions",
     instructions: html,
+    instruction: html,
     content: html,
     description: html,
     html,
+    text: html,
+    body: html,
+    value: html,
+    default_value: html,
     required: false,
     unique,
     conditional_option: "",
@@ -364,7 +369,7 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     if (/(type|option_type|input_type|field_type|display_type|kind)/.test(normalizedKey)) {
       next[key] = "instructions";
     }
-    if (/(instructions|instruction|html|content|description|help_text|text|body)/.test(normalizedKey)) {
+    if (/(instructions|instruction|html|content|description|help_text|text|body|value|default_value)/.test(normalizedKey)) {
       next[key] = html;
     }
     if (/(required)/.test(normalizedKey)) next[key] = false;
@@ -378,8 +383,14 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
     label: "Taglia",
     name: "Taglia",
     instructions: html,
+    instruction: html,
     content: html,
+    description: html,
     html,
+    text: html,
+    body: html,
+    value: html,
+    default_value: html,
   };
 }
 
