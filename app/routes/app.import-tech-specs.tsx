@@ -113,6 +113,7 @@ const FIND_PRODUCT_QUERY = `#graphql
         id
         title
         handle
+        descriptionHtml
       }
     }
   }
@@ -270,6 +271,121 @@ function parseCsv(text: string): CsvRow[] {
       icon: raw.icon?.trim() ?? "",
     };
   });
+}
+
+function decodeHtmlEntities(value: string) {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code: string) => {
+    const normalizedCode = code.toLowerCase();
+    if (normalizedCode[0] === "#") {
+      const radix = normalizedCode[1] === "x" ? 16 : 10;
+      const number = parseInt(
+        normalizedCode[1] === "x" ? normalizedCode.slice(2) : normalizedCode.slice(1),
+        radix,
+      );
+      return Number.isFinite(number) ? String.fromCodePoint(number) : entity;
+    }
+
+    return namedEntities[normalizedCode] ?? entity;
+  });
+}
+
+function normalizeCellHtml(html: string) {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+      .replace(/<li[^>]*>/gi, "- ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\u00a0/g, " ")
+      .split("\n")
+      .map((line) => line.replace(/[ \t]+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n"),
+  ).trim();
+}
+
+function guessIcon(label: string) {
+  const normalized = slugify(label);
+  if (/material|tessut|carta|support|pvc|poliestere/.test(normalized)) return "layers";
+  if (/stamp|tecnica|print|sublimazione|ricamo/.test(normalized)) return "print";
+  if (/peso|grammatura|kg|gr/.test(normalized)) return "package";
+  if (/dimension|formato|misur|ingombro/.test(normalized)) return "ruler";
+  return "";
+}
+
+function isHeaderLike(label: string, value: string) {
+  const left = slugify(label);
+  const right = slugify(value);
+  const labelWords = ["label", "nome", "specifica", "specifiche", "caratteristica"];
+  const valueWords = ["value", "valore", "descrizione", "testo", "dettaglio"];
+
+  return labelWords.includes(left) && valueWords.includes(right);
+}
+
+function parseTechSpecsFromDescription(
+  descriptionHtml: string,
+  productHandle: string,
+  requestedSheetTitle: string,
+  fallbackSheetTitle: string,
+) {
+  const rows: CsvRow[] = [];
+  const tables = descriptionHtml.match(/<table[\s\S]*?<\/table>/gi) ?? [];
+
+  for (const table of tables) {
+    const tableRows = table.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+    const parsedRows: CsvRow[] = [];
+    let detectedSheetTitle = "";
+
+    tableRows.forEach((rowHtml) => {
+      const cells = Array.from(rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi))
+        .map((match) => normalizeCellHtml(match[1] ?? ""))
+        .filter(Boolean);
+
+      if (cells.length === 1 && !requestedSheetTitle && !parsedRows.length) {
+        detectedSheetTitle = cells[0];
+        return;
+      }
+
+      if (cells.length < 2) return;
+
+      const label = cells[0];
+      const value = cells.slice(1).join("\n");
+      if (!label || !value || isHeaderLike(label, value)) return;
+
+      parsedRows.push({
+        productHandle,
+        sheetTitle: requestedSheetTitle || detectedSheetTitle || fallbackSheetTitle,
+        order: parsedRows.length + 1,
+        label,
+        value,
+        icon: guessIcon(label),
+      });
+    });
+
+    if (parsedRows.length) {
+      rows.push(...parsedRows);
+      break;
+    }
+  }
+
+  if (!rows.length) {
+    throw new Error(
+      "Non ho trovato una tabella valida nella descrizione del prodotto. Serve una tabella con almeno due colonne: nome specifica e valore.",
+    );
+  }
+
+  return rows;
 }
 
 function groupRows(rows: CsvRow[]) {
@@ -587,7 +703,7 @@ async function findProduct(admin: any, handle: string) {
   if (!product) {
     throw new Error(`Prodotto non trovato: ${handle}.`);
   }
-  return product as { id: string; title: string; handle: string };
+  return product as { id: string; title: string; handle: string; descriptionHtml?: string };
 }
 
 async function upsertMetaobject(
@@ -722,17 +838,40 @@ async function importRows(admin: any, rows: CsvRow[]) {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
-  const file = formData.get("csvFile");
-
-  if (!(file instanceof File) || !file.name) {
-    return {
-      ok: false,
-      errors: ["Carica un file CSV prima di importare."],
-    } satisfies ImportResult;
-  }
+  const importSource = String(formData.get("importSource") || "csv");
 
   try {
-    const rows = parseCsv(await file.text());
+    let rows: CsvRow[];
+
+    if (importSource === "description") {
+      const productHandle = String(formData.get("productHandle") || "").trim();
+      if (!productHandle) {
+        return {
+          ok: false,
+          errors: ["Inserisci l'handle prodotto prima di importare dalla descrizione."],
+        } satisfies ImportResult;
+      }
+
+      const product = await findProduct(admin, productHandle);
+      rows = parseTechSpecsFromDescription(
+        product.descriptionHtml || "",
+        product.handle,
+        String(formData.get("sheetTitle") || "").trim(),
+        product.title,
+      );
+    } else {
+      const file = formData.get("csvFile");
+
+      if (!(file instanceof File) || !file.name) {
+        return {
+          ok: false,
+          errors: ["Carica un file CSV prima di importare."],
+        } satisfies ImportResult;
+      }
+
+      rows = parseCsv(await file.text());
+    }
+
     const result = await importRows(admin, rows);
     return {
       ok: true,
@@ -741,7 +880,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   } catch (error) {
     return {
       ok: false,
-      errors: [error instanceof Error ? error.message : "Errore import CSV."],
+      errors: [error instanceof Error ? error.message : "Errore import specifiche tecniche."],
     } satisfies ImportResult;
   }
 };
@@ -751,6 +890,7 @@ export default function ImportTechSpecs() {
   const navigation = useNavigation();
   const shopify = useAppBridge();
   const isImporting = navigation.state !== "idle";
+  const importingSource = navigation.formData?.get("importSource");
 
   useEffect(() => {
     if (actionData?.ok) {
@@ -764,22 +904,58 @@ export default function ImportTechSpecs() {
       <div className="tech-import">
         <section className="tech-import__card">
           <div className="tech-import__header">
-            <p className="tech-import__kicker">CSV a metaobject</p>
+            <p className="tech-import__kicker">Descrizione o CSV a metaobject</p>
             <h1>Importa schede tecniche</h1>
             <p>
-              Carica un CSV e l'app aggiornera il metafield
+              Importa le specifiche dalla tabella nella descrizione prodotto oppure
+              carica un CSV. L'app aggiornera il metafield
               <code> custom.tech_specs </code>
               mantenendo identica la sezione frontend.
             </p>
           </div>
 
           <Form method="post" encType="multipart/form-data" className="tech-import__form">
+            <input name="importSource" type="hidden" value="description" />
+            <div className="tech-import__form-head">
+              <h2>Da descrizione prodotto</h2>
+              <p>
+                Legge la prima tabella a due colonne dalla descrizione Shopify.
+                La prima colonna diventa il nome specifica, la seconda il valore.
+              </p>
+            </div>
+            <label className="tech-import__field">
+              <span>Handle prodotto</span>
+              <input name="productHandle" type="text" placeholder="es. maglia-running" required />
+            </label>
+            <label className="tech-import__field">
+              <span>Titolo scheda opzionale</span>
+              <input
+                name="sheetTitle"
+                type="text"
+                placeholder="Lascia vuoto per usare il titolo della tabella"
+              />
+            </label>
+            <button className="tech-import__button" disabled={isImporting} type="submit">
+              {isImporting && importingSource === "description"
+                ? "Import dalla descrizione..."
+                : "Importa dalla descrizione"}
+            </button>
+          </Form>
+
+          <div className="tech-import__divider" />
+
+          <Form method="post" encType="multipart/form-data" className="tech-import__form">
+            <input name="importSource" type="hidden" value="csv" />
+            <div className="tech-import__form-head">
+              <h2>Da CSV</h2>
+              <p>Utile per import massivi o quando le specifiche non sono nella descrizione.</p>
+            </div>
             <label className="tech-import__field">
               <span>File CSV</span>
               <input name="csvFile" type="file" accept=".csv,text/csv" required />
             </label>
             <button className="tech-import__button" disabled={isImporting} type="submit">
-              {isImporting ? "Import in corso..." : "Importa CSV"}
+              {isImporting && importingSource === "csv" ? "Import CSV..." : "Importa CSV"}
             </button>
           </Form>
 
@@ -817,6 +993,15 @@ berretti-invernali,Berretti Invernali,2,Tecnica di stampa,"Ricamo / DTF",print`}
             <strong> scheda</strong> e il titolo del gruppo, ad esempio
             "Berretti Invernali". <strong>icon</strong> e opzionale.
           </p>
+          <div className="tech-import__hint">
+            <h2>Formato descrizione supportato</h2>
+            <p>
+              Nella descrizione prodotto puoi usare una tabella come:
+              prima riga titolo, poi righe <strong>Materiale</strong> /
+              <strong>100% Poliestere</strong>, <strong>Peso</strong> /
+              <strong>120 gr/m</strong>, ecc.
+            </p>
+          </div>
         </section>
       </div>
     </s-page>
@@ -897,6 +1082,17 @@ const styles = `
     gap: 16px;
   }
 
+  .tech-import__form-head {
+    display: grid;
+    gap: 5px;
+  }
+
+  .tech-import__divider {
+    height: 1px;
+    margin: 22px 0;
+    background: linear-gradient(90deg, transparent, #d9e7de, transparent);
+  }
+
   .tech-import__field {
     display: grid;
     gap: 8px;
@@ -975,6 +1171,12 @@ const styles = `
     font-size: 12px;
     line-height: 1.55;
     white-space: pre;
+  }
+
+  .tech-import__hint {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #dce8df;
   }
 
   @media (max-width: 900px) {
