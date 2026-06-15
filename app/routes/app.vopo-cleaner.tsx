@@ -273,42 +273,7 @@ ${items}
 .ws-sizes__badge{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(0,0,0,.05);font-weight:700;font-size:13px!important}
 .ws-sizes__name{font-weight:600;font-size:12px!important}
 .ws-sizes__item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border:1px solid rgba(0,0,0,.08);border-radius:14px;background:#fff}
-</style>
-<script>
-(function(){
-  function initWsSizes(root){
-    if(!root || root.dataset.wsSizesBound === '1') return;
-    root.dataset.wsSizesBound = '1';
-    var hidden = root.querySelector('[data-ws-sizes-summary]');
-    var error = root.querySelector('.ws-sizes__error');
-    var inputs = Array.prototype.slice.call(root.querySelectorAll('.ws-size-qty'));
-
-    function sync(){
-      var parts = [];
-      inputs.forEach(function(input){
-        var item = input.closest('.ws-sizes__item');
-        var badge = item ? item.querySelector('.ws-sizes__badge') : null;
-        var qty = Math.max(0, parseInt(input.value || '0', 10) || 0);
-        input.value = String(qty);
-        if(qty > 0 && badge) parts.push((badge.textContent || '').trim() + ': ' + qty);
-      });
-      if(hidden) hidden.value = parts.join(', ');
-      if(error){
-        error.hidden = true;
-        error.textContent = '';
-      }
-    }
-
-    inputs.forEach(function(input){
-      input.addEventListener('input', sync);
-      input.addEventListener('change', sync);
-    });
-    sync();
-  }
-
-  document.querySelectorAll('.ws-sizes[data-pack-key="${escapeHtml(packKey)}"]').forEach(initWsSizes);
-})();
-</script>`;
+</style>`;
 }
 
 function cleanJson(value: unknown, criterion: MatchCriterion, searchText: string): {
@@ -366,25 +331,34 @@ function scoreInsertArray(items: unknown[]): number {
 }
 
 function buildInstructionOptionFromTemplate(template: unknown, html: string) {
+  const unique = `ws-taglie-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const fallback = {
+    title: "Taglia",
+    label: "Taglia",
+    name: "Taglia",
     type: "instructions",
     option_type: "instructions",
     input_type: "instructions",
     field_type: "instructions",
-    title: "Taglia",
-    label: "Taglia",
-    name: "Taglia",
     instructions: html,
     content: html,
     description: html,
     html,
     required: false,
+    unique,
+    conditional_option: "",
+    conditional_value: "",
+    multiselect_operator: "",
+    multiselect_number: "",
   };
 
   if (!isRecord(template)) return fallback;
 
-  const next: Record<string, unknown> = { ...template };
-  Object.keys(next).forEach((key) => {
+  const isInstructionTemplate = matchesOption(template, "type", "instructions");
+  if (!isInstructionTemplate) return fallback;
+
+  const next: Record<string, unknown> = {};
+  Object.keys(template).forEach((key) => {
     const normalizedKey = normalize(key);
     if (/(title|label|name|nome)/.test(normalizedKey)) next[key] = "Taglia";
     if (/(type|option_type|input_type|field_type|display_type|kind)/.test(normalizedKey)) {
@@ -394,7 +368,7 @@ function buildInstructionOptionFromTemplate(template: unknown, html: string) {
       next[key] = html;
     }
     if (/(required)/.test(normalizedKey)) next[key] = false;
-    if (/(id|uuid)/.test(normalizedKey)) next[key] = `ws-taglie-${Date.now()}`;
+    if (/(id|uuid|unique)/.test(normalizedKey)) next[key] = unique;
   });
 
   return {
