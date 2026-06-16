@@ -40,9 +40,15 @@ type InsertPatch = Omit<CleanPatch, "removedCount"> & {
   insertedCount: number;
 };
 
+type EditPatch = Omit<CleanPatch, "removedCount"> & {
+  editedCount: number;
+};
+
+type CleanerOperation = "remove" | "insert" | "edit";
+
 type CleanerResult = {
   ok: boolean;
-  operation?: "remove" | "insert";
+  operation?: CleanerOperation;
   mode?: "preview" | "apply";
   scannedProducts?: number;
   matchedProducts?: number;
@@ -53,6 +59,21 @@ type CleanerResult = {
 };
 
 type MatchCriterion = "any" | "title" | "type" | "instructions";
+
+const OPTION_TITLE_KEYS = ["title", "label", "name", "nome", "option_title", "display_name"];
+const OPTION_TYPE_KEYS = ["type", "kind", "field_type", "option_type", "input_type", "display_type"];
+const OPTION_INSTRUCTION_KEYS = [
+  ...OPTION_TITLE_KEYS,
+  ...OPTION_TYPE_KEYS,
+  "instructions",
+  "instruction",
+  "content",
+  "description",
+  "help_text",
+  "html",
+  "text",
+  "body",
+];
 
 const PRODUCTS_QUERY = `#graphql
   query VopoCleanerProducts($query: String!, $first: Int!) {
@@ -159,28 +180,13 @@ function matchesOption(value: unknown, criterion: MatchCriterion, searchText: st
   const needle = normalize(searchText);
   if (!needle) return false;
 
-  const titleKeys = ["title", "label", "name", "nome", "option_title", "display_name"];
-  const typeKeys = ["type", "kind", "field_type", "option_type", "input_type", "display_type"];
-  const instructionKeys = [
-    ...titleKeys,
-    ...typeKeys,
-    "instructions",
-    "instruction",
-    "content",
-    "description",
-    "help_text",
-    "html",
-    "text",
-    "body",
-  ];
-
   let haystack: string[];
   if (criterion === "title") {
-    haystack = objectStringsByKeys(value, titleKeys);
+    haystack = objectStringsByKeys(value, OPTION_TITLE_KEYS);
   } else if (criterion === "type") {
-    haystack = objectStringsByKeys(value, typeKeys);
+    haystack = objectStringsByKeys(value, OPTION_TYPE_KEYS);
   } else if (criterion === "instructions") {
-    haystack = objectStringsByKeys(value, instructionKeys);
+    haystack = objectStringsByKeys(value, OPTION_INSTRUCTION_KEYS);
   } else {
     haystack = collectStrings(value);
   }
@@ -301,6 +307,71 @@ function cleanJson(value: unknown, criterion: MatchCriterion, searchText: string
   }
 
   return { value, removedCount: 0 };
+}
+
+function renameOptionTitle(value: unknown, nextTitle: string): {
+  value: unknown;
+  changed: boolean;
+} {
+  if (!isRecord(value)) return { value, changed: false };
+
+  let changed = false;
+  let foundTitleKey = false;
+  const nextValue: Record<string, unknown> = { ...value };
+
+  Object.keys(value).forEach((key) => {
+    if (!OPTION_TITLE_KEYS.includes(normalize(key))) return;
+
+    foundTitleKey = true;
+    if (nextValue[key] !== nextTitle) {
+      nextValue[key] = nextTitle;
+      changed = true;
+    }
+  });
+
+  if (!foundTitleKey) {
+    nextValue.title = nextTitle;
+    changed = true;
+  }
+
+  return { value: nextValue, changed };
+}
+
+function editJson(value: unknown, criterion: MatchCriterion, searchText: string, nextTitle: string): {
+  value: unknown;
+  editedCount: number;
+} {
+  if (Array.isArray(value)) {
+    let editedCount = 0;
+    const nextItems = value.map((item) => {
+      if (matchesOption(item, criterion, searchText)) {
+        const renamed = renameOptionTitle(item, nextTitle);
+        if (renamed.changed) editedCount += 1;
+        return renamed.value;
+      }
+
+      const edited = editJson(item, criterion, searchText, nextTitle);
+      editedCount += edited.editedCount;
+      return edited.value;
+    });
+
+    return { value: nextItems, editedCount };
+  }
+
+  if (isRecord(value)) {
+    let editedCount = 0;
+    const nextObject: Record<string, unknown> = {};
+
+    Object.entries(value).forEach(([key, child]) => {
+      const edited = editJson(child, criterion, searchText, nextTitle);
+      editedCount += edited.editedCount;
+      nextObject[key] = edited.value;
+    });
+
+    return { value: nextObject, editedCount };
+  }
+
+  return { value, editedCount: 0 };
 }
 
 function scoreInsertArray(items: unknown[]): number {
@@ -466,13 +537,16 @@ async function setMetafields(
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
-  const operation = String(formData.get("operation") || "remove") === "insert" ? "insert" : "remove";
+  const rawOperation = String(formData.get("operation") || "remove");
+  const operation: CleanerOperation =
+    rawOperation === "insert" ? "insert" : rawOperation === "edit" ? "edit" : "remove";
   const mode = String(formData.get("mode") || "preview") === "apply" ? "apply" : "preview";
   const productQuery = String(formData.get("productQuery") || "").trim();
   const namespace = String(formData.get("namespace") || "").trim();
   const key = String(formData.get("key") || "").trim();
   const criterion = String(formData.get("criterion") || "any") as MatchCriterion;
   const searchText = String(formData.get("searchText") || "").trim();
+  const nextTitle = String(formData.get("nextTitle") || "").trim();
   const productType = String(formData.get("productType") || "").trim();
   const fromSize = String(formData.get("fromSize") || "XXS").trim();
   const toSize = String(formData.get("toSize") || "XXL").trim();
@@ -492,6 +566,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } satisfies CleanerResult;
   }
 
+  if (operation === "edit" && (!searchText || !nextTitle)) {
+    return {
+      ok: false,
+      errors: ["Inserisci sia il testo da cercare sia il nuovo titolo della variante/opzione."],
+    } satisfies CleanerResult;
+  }
+
   if (operation === "insert" && !productType) {
     return {
       ok: false,
@@ -505,7 +586,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       first: productLimit,
     });
     const products: VopoProduct[] = data.products?.nodes ?? [];
-    const patches: Array<CleanPatch | InsertPatch> = [];
+    const patches: Array<CleanPatch | InsertPatch | EditPatch> = [];
     const instructionHtml = operation === "insert"
       ? buildSizesInstructionHtml(productType, fromSize, toSize)
       : "";
@@ -528,6 +609,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             type: metafield.type,
             nextValue: JSON.stringify(inserted.value),
             insertedCount: inserted.insertedCount,
+          });
+          return;
+        }
+
+        if (operation === "edit") {
+          const edited = editJson(parsed, criterion, searchText, nextTitle);
+          if (!edited.editedCount) return;
+
+          patches.push({
+            productId: product.id,
+            productTitle: product.title,
+            productHandle: product.handle,
+            namespace: metafield.namespace,
+            key: metafield.key,
+            type: metafield.type,
+            nextValue: JSON.stringify(edited.value),
+            editedCount: edited.editedCount,
           });
           return;
         }
@@ -555,6 +653,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const matchedProducts = new Set(patches.map((patch) => patch.productId)).size;
     const affectedOptions = patches.reduce((total, patch) => {
       if ("removedCount" in patch) return total + patch.removedCount;
+      if ("editedCount" in patch) return total + patch.editedCount;
       return total + patch.insertedCount;
     }, 0);
 
@@ -568,10 +667,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       affectedOptions,
       details: patches.map(
         (patch) => {
-          const count = "removedCount" in patch ? patch.removedCount : patch.insertedCount;
-          const actionLabel = operation === "insert"
-            ? mode === "apply" ? "inseriti" : "da inserire"
-            : mode === "apply" ? "rimossi" : "da rimuovere";
+          const count =
+            "removedCount" in patch
+              ? patch.removedCount
+              : "editedCount" in patch
+                ? patch.editedCount
+                : patch.insertedCount;
+          const actionLabel =
+            operation === "insert"
+              ? mode === "apply" ? "inseriti" : "da inserire"
+              : operation === "edit"
+                ? mode === "apply" ? "modificati" : "da modificare"
+                : mode === "apply" ? "rimossi" : "da rimuovere";
 
           return `${patch.productTitle} (${patch.productHandle}) - ${patch.namespace}.${patch.key}: ${count} elementi ${actionLabel}`;
         },
@@ -607,8 +714,8 @@ export default function VopoCleaner() {
           <p className="vopo-cleaner__kicker">Pulizia massiva sicura</p>
           <h1>Gestisci opzioni VOPO/BCPO da più prodotti</h1>
           <p>
-            Cerca i prodotti, individua i metafield JSON candidati e rimuove o inserisce
-            opzioni instruction. Prima usa sempre
+            Cerca i prodotti, individua i metafield JSON candidati e rimuove, modifica
+            o inserisce opzioni instruction. Prima usa sempre
             <strong> Anteprima</strong>.
           </p>
 
@@ -682,6 +789,89 @@ export default function VopoCleaner() {
                 {isSubmitting && submittingOperation === "remove" && submittingMode === "apply"
                   ? "Cancello..."
                   : "Applica cancellazione"}
+              </button>
+            </div>
+          </Form>
+
+          <Form method="post" className="vopo-cleaner__form vopo-cleaner__section">
+            <input name="operation" type="hidden" value="edit" />
+            <h2>Modifica titolo variante/opzione</h2>
+            <label className="vopo-cleaner__field vopo-cleaner__field--wide">
+              <span>Query prodotti Shopify</span>
+              <input
+                name="productQuery"
+                placeholder="es. tag:CustomPrice oppure title:*striscioni* oppure handle:prodotto"
+                required
+              />
+            </label>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Limite prodotti</span>
+                <input name="productLimit" type="number" min="1" max="100" defaultValue="25" />
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>Criterio</span>
+                <select name="criterion" defaultValue="title">
+                  <option value="title">Titolo / label / nome</option>
+                  <option value="instructions">Instructions / contenuto</option>
+                  <option value="type">Tipo variante</option>
+                  <option value="any">Qualsiasi campo</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="vopo-cleaner__field vopo-cleaner__field--wide">
+              <span>Titolo/testo da cercare</span>
+              <input
+                name="searchText"
+                placeholder="es. Materiale, Posizione Stampa, IMPORTANTE..."
+                required
+              />
+            </label>
+
+            <label className="vopo-cleaner__field vopo-cleaner__field--wide">
+              <span>Nuovo titolo</span>
+              <input
+                name="nextTitle"
+                placeholder="es. Materiale di stampa, Posizione stampa, Avviso importante"
+                required
+              />
+            </label>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Namespace metafield opzionale</span>
+                <input name="namespace" placeholder="lascia vuoto per auto-detect" />
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>Key metafield opzionale</span>
+                <input name="key" placeholder="lascia vuoto per auto-detect" />
+              </label>
+            </div>
+
+            <div className="vopo-cleaner__actions">
+              <button
+                className="vopo-cleaner__button"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="preview"
+              >
+                {isSubmitting && submittingOperation === "edit" && submittingMode === "preview"
+                  ? "Analisi..."
+                  : "Anteprima modifica"}
+              </button>
+              <button
+                className="vopo-cleaner__button vopo-cleaner__button--edit"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="apply"
+              >
+                {isSubmitting && submittingOperation === "edit" && submittingMode === "apply"
+                  ? "Modifico..."
+                  : "Applica modifica"}
               </button>
             </div>
           </Form>
@@ -791,6 +981,8 @@ export default function VopoCleaner() {
                 {actionData.mode === "apply"
                   ? actionData.operation === "insert"
                     ? "Inserimento completato"
+                    : actionData.operation === "edit"
+                      ? "Modifica completata"
                     : "Cancellazione completata"
                   : "Anteprima completata"}
               </strong>
@@ -945,6 +1137,11 @@ const styles = `
   .vopo-cleaner__button--insert {
     background: linear-gradient(135deg, #2563eb 0%, #0f766e 100%);
     box-shadow: 0 12px 24px rgba(37, 99, 235, .16);
+  }
+
+  .vopo-cleaner__button--edit {
+    background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%);
+    box-shadow: 0 12px 24px rgba(180, 83, 9, .16);
   }
 
   .vopo-cleaner__button:disabled {
