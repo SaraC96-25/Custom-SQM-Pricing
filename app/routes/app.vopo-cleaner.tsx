@@ -319,82 +319,18 @@ function scoreInsertArray(items: unknown[]): number {
   }, 0);
 }
 
-function buildInstructionOptionFromTemplate(template: unknown, html: string) {
+function buildInstructionOptionFromTemplate(_template: unknown, html: string) {
   const unique = `ws-taglie-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const fallback = {
+
+  return {
     title: "Taglia",
-    label: "Taglia",
-    name: "Taglia",
     type: "instructions",
-    option_type: "instructions",
-    input_type: "instructions",
-    field_type: "instructions",
-    instructions: html,
-    instruction: html,
-    content: html,
-    description: html,
-    html,
-    text: html,
-    body: html,
-    value: html,
-    default_value: html,
-    defaultValue: html,
-    default: html,
-    message: html,
-    note: html,
-    help_text: html,
-    tooltip: html,
-    values: [{ key: html, value: html, price: "" }],
-    required: false,
     unique,
     conditional_option: "",
     conditional_value: "",
+    values: [{ key: html, price: "" }],
     multiselect_operator: "",
     multiselect_number: "",
-  };
-
-  if (!isRecord(template)) return fallback;
-
-  const isInstructionTemplate = matchesOption(template, "type", "instructions");
-  if (!isInstructionTemplate) return fallback;
-
-  const next: Record<string, unknown> = {};
-  Object.keys(template).forEach((key) => {
-    const normalizedKey = normalize(key);
-    if (/(title|label|name|nome)/.test(normalizedKey)) next[key] = "Taglia";
-    if (/(type|option_type|input_type|field_type|display_type|kind)/.test(normalizedKey)) {
-      next[key] = "instructions";
-    }
-    if (/(instructions|instruction|html|content|description|help_text|text|body|value|default_value|defaultvalue|default|message|note|tooltip)/.test(normalizedKey)) {
-      next[key] = html;
-    }
-    if (normalizedKey === "values") next[key] = [{ key: html, value: html, price: "" }];
-    if (/(required)/.test(normalizedKey)) next[key] = false;
-    if (/(id|uuid|unique)/.test(normalizedKey)) next[key] = unique;
-  });
-
-  return {
-    ...fallback,
-    ...next,
-    title: "Taglia",
-    label: "Taglia",
-    name: "Taglia",
-    instructions: html,
-    instruction: html,
-    content: html,
-    description: html,
-    html,
-    text: html,
-    body: html,
-    value: html,
-    default_value: html,
-    defaultValue: html,
-    default: html,
-    message: html,
-    note: html,
-    help_text: html,
-    tooltip: html,
-    values: [{ key: html, value: html, price: "" }],
   };
 }
 
@@ -402,6 +338,30 @@ function insertInstructionJson(value: unknown, html: string): {
   value: unknown;
   insertedCount: number;
 } {
+  if (isRecord(value) && Array.isArray(value.virtual_options)) {
+    const alreadyExists = value.virtual_options.some((item) =>
+      collectStrings(item).some((text) => text.includes("data-pack-key=")),
+    );
+
+    if (alreadyExists) return { value, insertedCount: 0 };
+
+    return {
+      value: {
+        ...value,
+        virtual_options: [
+          ...value.virtual_options,
+          buildInstructionOptionFromTemplate(
+            value.virtual_options.find(
+              (item) => isRecord(item) && matchesOption(item, "type", "instructions"),
+            ) ?? value.virtual_options.find(isRecord),
+            html,
+          ),
+        ],
+      },
+      insertedCount: 1,
+    };
+  }
+
   type Candidate = { path: Array<string | number>; score: number; template: unknown };
   const candidates: Candidate[] = [];
 
