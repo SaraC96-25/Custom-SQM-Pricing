@@ -95,6 +95,19 @@ const PRODUCTS_QUERY = `#graphql
   }
 `;
 
+function normalizeProductSearchQuery(query: string) {
+  const trimmed = query.trim();
+  if (!trimmed) return "";
+  if (/^handle:/i.test(trimmed)) return trimmed;
+
+  const parenthesizedHandle = trimmed.match(/\(([a-z0-9][a-z0-9-]*[a-z0-9])\)\s*$/i);
+  if (parenthesizedHandle?.[1]) {
+    return `handle:${parenthesizedHandle[1]}`;
+  }
+
+  return trimmed;
+}
+
 const METAFIELDS_SET_MUTATION = `#graphql
   mutation VopoCleanerMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {
@@ -581,8 +594,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   try {
+    const shopifyProductQuery = normalizeProductSearchQuery(productQuery);
     const data = await adminGraphql(admin, PRODUCTS_QUERY, {
-      query: productQuery,
+      query: shopifyProductQuery,
       first: productLimit,
     });
     const products: VopoProduct[] = data.products?.nodes ?? [];
@@ -726,7 +740,7 @@ export default function VopoCleaner() {
               <span>Query prodotti Shopify</span>
               <input
                 name="productQuery"
-                placeholder="es. tag:CustomPrice oppure title:*striscioni* oppure handle:prodotto"
+                placeholder="es. Nome prodotto (handle), handle:prodotto, tag:CustomPrice"
                 required
               />
             </label>
@@ -800,7 +814,7 @@ export default function VopoCleaner() {
               <span>Query prodotti Shopify</span>
               <input
                 name="productQuery"
-                placeholder="es. tag:CustomPrice oppure title:*striscioni* oppure handle:prodotto"
+                placeholder="es. Nome prodotto (handle), handle:prodotto, tag:CustomPrice"
                 required
               />
             </label>
@@ -884,7 +898,7 @@ export default function VopoCleaner() {
               <span>Query prodotti Shopify</span>
               <input
                 name="productQuery"
-                placeholder="es. tag:abbigliamento oppure title:*calzoncini*"
+                placeholder="es. Nome prodotto (handle), handle:prodotto, tag:abbigliamento"
                 required
               />
             </label>
