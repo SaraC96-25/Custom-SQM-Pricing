@@ -19,7 +19,16 @@ const NO_CHANGES = {
 export function cartTransformRun(input) {
   const operations = input.cart.lines
     .map((line) => {
-      const finalCents = parseCents(line.finalPriceCents?.value);
+      const gazeboFinalCents = parseCents(line.gazeboFinalPriceCents?.value);
+      const calculatedCents = parseCents(line.calculatedPriceCents?.value);
+      const packagingCents = parseCents(line.packagingPriceCents?.value) ?? 0;
+      const fallbackCalculatedCents = calculatedCents
+        ? calculatedCents + packagingCents
+        : null;
+      const finalCents = gazeboFinalCents
+        ?? parseCents(line.finalPriceCents?.value)
+        ?? fallbackCalculatedCents
+        ?? parseMoneyToCents(line.calculatedPriceLabel?.value);
       const cents = finalCents;
 
       if (!cents) return null;
@@ -58,6 +67,38 @@ function parseCents(value) {
   if (!Number.isFinite(cents) || cents <= 0) return null;
 
   return cents;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function parseMoneyToCents(value) {
+  if (typeof value !== "string") return null;
+
+  let normalized = value
+    .replace(/\s+/g, "")
+    .replace(/[^\d,.\-]/g, "");
+
+  if (!normalized) return null;
+
+  const hasComma = normalized.includes(",");
+  const hasDot = normalized.includes(".");
+
+  if (hasComma && hasDot) {
+    if (normalized.lastIndexOf(",") > normalized.lastIndexOf(".")) {
+      normalized = normalized.replace(/\./g, "").replace(",", ".");
+    } else {
+      normalized = normalized.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  }
+
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  return Math.round(amount * 100);
 }
 
 /**

@@ -9,6 +9,7 @@
             "id": "gid://shopify/CartLine/1",
             "quantity": 1,
             "finalPriceCents": null,
+            "gazeboFinalPriceCents": null,
             "packagingPriceCents": null,
             "calculatedPriceCents": null,
             "calculatedPriceLabel": {

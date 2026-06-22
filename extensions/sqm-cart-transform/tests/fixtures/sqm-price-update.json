@@ -11,6 +11,7 @@
             "finalPriceCents": {
               "value": "8640"
             },
+            "gazeboFinalPriceCents": null,
             "packagingPriceCents": null,
             "calculatedPriceCents": null,
             "calculatedPriceLabel": null

@@ -44,7 +44,11 @@ type EditPatch = Omit<CleanPatch, "removedCount"> & {
   editedCount: number;
 };
 
-type CleanerOperation = "remove" | "insert" | "edit";
+type GazeboPatch = Omit<CleanPatch, "removedCount"> & {
+  gazeboCount: number;
+};
+
+type CleanerOperation = "remove" | "insert" | "edit" | "gazebo";
 
 type CleanerResult = {
   ok: boolean;
@@ -244,6 +248,68 @@ const SIZE_OPTIONS = [
   { value: "5XL", name: "Quintuple Extra Large" },
 ];
 
+const GAZEBO_POSITIONS = ["Alto", "Destra", "Basso", "Sinistra"];
+const GAZEBO_BASE_CENTS = 28000;
+
+function buildGazeboFinishingInstructionHtml() {
+  const spicchiControls = GAZEBO_POSITIONS.map(
+    (position, index) =>
+      `<button type="button" class="ws-gazebo__chip" data-ws-gazebo-toggle="spicchi" data-ws-gazebo-index="${index}" aria-pressed="false">${escapeHtml(position)}</button>`,
+  ).join("");
+  const fasceControls = GAZEBO_POSITIONS.map(
+    (position, index) =>
+      `<button type="button" class="ws-gazebo__chip" data-ws-gazebo-toggle="fasce" data-ws-gazebo-index="${index}" aria-pressed="false">${escapeHtml(position)}</button>`,
+  ).join("");
+
+  return `<div class="ws-gazebo-finishing" data-ws-gazebo-finishing data-ws-gazebo-base-cents="${GAZEBO_BASE_CENTS}">
+  <div class="ws-gazebo__head">
+    <span class="ws-bcpo-icon ws-gazebo__head-icon" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/0555/0601/0321/files/setting.svg?v=1772452690" alt="" loading="lazy" decoding="async" width="20" height="20" class="ws-bcpo-icon__img"></span>
+    <div>
+      <div class="ws-gazebo__title">Lavorazioni e Rifiniture</div>
+      <div class="ws-gazebo__value" data-ws-gazebo-label>Solo Struttura</div>
+    </div>
+  </div>
+
+  <div class="ws-gazebo__body">
+    <button type="button" class="ws-gazebo__preview" data-ws-gazebo-preset="none" aria-label="Schema lavorazioni gazebo">
+      <svg class="ws-gazebo__svg" viewBox="0 0 120 120" aria-hidden="true">
+        <defs><linearGradient id="wsGazeboSegGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#22d36a"></stop><stop offset="100%" stop-color="#0f9f43"></stop></linearGradient></defs>
+        <polygon data-ws-gazebo-shape="spicchi" data-ws-gazebo-index="0" points="60,14 87,48 33,48"></polygon>
+        <polygon data-ws-gazebo-shape="spicchi" data-ws-gazebo-index="1" points="106,60 72,87 72,33"></polygon>
+        <polygon data-ws-gazebo-shape="spicchi" data-ws-gazebo-index="2" points="60,106 33,72 87,72"></polygon>
+        <polygon data-ws-gazebo-shape="spicchi" data-ws-gazebo-index="3" points="14,60 48,33 48,87"></polygon>
+        <rect data-ws-gazebo-shape="fasce" data-ws-gazebo-index="0" x="37" y="5" width="46" height="10" rx="4"></rect>
+        <rect data-ws-gazebo-shape="fasce" data-ws-gazebo-index="1" x="105" y="37" width="10" height="46" rx="4"></rect>
+        <rect data-ws-gazebo-shape="fasce" data-ws-gazebo-index="2" x="37" y="105" width="46" height="10" rx="4"></rect>
+        <rect data-ws-gazebo-shape="fasce" data-ws-gazebo-index="3" x="5" y="37" width="10" height="46" rx="4"></rect>
+        <circle cx="60" cy="60" r="8"></circle>
+      </svg>
+      <span>Vista dall'alto</span>
+    </button>
+
+    <div class="ws-gazebo__controls">
+      <div class="ws-gazebo__presets">
+        <button type="button" class="ws-gazebo__preset" data-ws-gazebo-preset="none" aria-pressed="true">Solo struttura</button>
+        <button type="button" class="ws-gazebo__preset" data-ws-gazebo-preset="all" aria-pressed="false">Completo</button>
+      </div>
+      <div class="ws-gazebo__group">
+        <div class="ws-gazebo__group-head"><span>Spicchi tetto</span><button type="button" data-ws-gazebo-all="spicchi">Tutti</button></div>
+        <div class="ws-gazebo__chips">${spicchiControls}</div>
+      </div>
+      <div class="ws-gazebo__group">
+        <div class="ws-gazebo__group-head"><span>Fasce laterali</span><button type="button" data-ws-gazebo-all="fasce">Tutte</button></div>
+        <div class="ws-gazebo__chips">${fasceControls}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ws-gazebo__summary"><span aria-hidden="true"></span><strong>Configurazione selezionata</strong><em data-ws-gazebo-summary>Solo Struttura</em></div>
+  <p class="ws-gazebo__hint">La struttura base e telo tetto e sempre inclusa. Tocca lo schema o i pulsanti per personalizzare ogni lato.</p>
+  <input type="hidden" name="properties[Lavorazioni e Rifiniture]" data-ws-gazebo-property value="Solo Struttura">
+  <input type="hidden" name="properties[_ws_gazebo_final_price_cents]" data-ws-gazebo-final-cents value="${GAZEBO_BASE_CENTS}">
+</div>`;
+}
+
 function getSizeRange(fromSize: string, toSize: string) {
   const fromIndex = SIZE_OPTIONS.findIndex((size) => size.value === fromSize);
   const toIndex = SIZE_OPTIONS.findIndex((size) => size.value === toSize);
@@ -418,6 +484,109 @@ function buildInstructionOptionFromTemplate(_template: unknown, html: string) {
   };
 }
 
+function buildGazeboInstructionOptionFromTemplate(_template: unknown, html: string) {
+  const unique = `ws-gazebo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return {
+    title: "Lavorazioni e Rifiniture",
+    type: "instructions",
+    unique,
+    conditional_option: "",
+    conditional_value: "",
+    values: [{ key: html, price: "" }],
+    multiselect_operator: "",
+    multiselect_number: "",
+  };
+}
+
+function isGazeboFinishingOption(value: unknown) {
+  return collectStrings(value).some((text) =>
+    text.includes("data-ws-gazebo-finishing") ||
+    normalize(text).includes("lavorazioni e rifiniture"),
+  );
+}
+
+function upsertGazeboFinishingJson(value: unknown, html: string): {
+  value: unknown;
+  gazeboCount: number;
+} {
+  function upsertInArray(items: unknown[]): { items: unknown[]; count: number } {
+    let count = 0;
+    let found = false;
+    const nextItems = items.map((item) => {
+      if (isGazeboFinishingOption(item)) {
+        found = true;
+        count += 1;
+        return buildGazeboInstructionOptionFromTemplate(item, html);
+      }
+
+      return item;
+    });
+
+    if (!found) {
+      nextItems.push(buildGazeboInstructionOptionFromTemplate(items.find(isRecord), html));
+      count = 1;
+    }
+
+    return { items: nextItems, count };
+  }
+
+  if (isRecord(value) && Array.isArray(value.virtual_options)) {
+    const upserted = upsertInArray(value.virtual_options);
+    return {
+      value: {
+        ...value,
+        virtual_options: upserted.items,
+      },
+      gazeboCount: upserted.count,
+    };
+  }
+
+  type Candidate = { path: Array<string | number>; score: number };
+  const candidates: Candidate[] = [];
+
+  function visit(node: unknown, path: Array<string | number>) {
+    if (Array.isArray(node)) {
+      candidates.push({ path, score: scoreInsertArray(node) });
+      node.forEach((child, index) => visit(child, [...path, index]));
+      return;
+    }
+
+    if (isRecord(node)) {
+      Object.entries(node).forEach(([key, child]) => visit(child, [...path, key]));
+    }
+  }
+
+  visit(value, []);
+  const best = candidates.sort((first, second) => second.score - first.score)[0];
+  if (!best) return { value, gazeboCount: 0 };
+
+  let gazeboCount = 0;
+
+  function cloneAndUpsert(node: unknown, path: Array<string | number>): unknown {
+    if (!path.length) {
+      if (!Array.isArray(node)) return node;
+      const upserted = upsertInArray(node);
+      gazeboCount = upserted.count;
+      return upserted.items;
+    }
+
+    const [head, ...tail] = path;
+    if (Array.isArray(node) && typeof head === "number") {
+      return node.map((child, index) => (index === head ? cloneAndUpsert(child, tail) : child));
+    }
+    if (isRecord(node) && typeof head === "string") {
+      return { ...node, [head]: cloneAndUpsert(node[head], tail) };
+    }
+    return node;
+  }
+
+  return {
+    value: cloneAndUpsert(value, best.path),
+    gazeboCount,
+  };
+}
+
 function insertInstructionJson(value: unknown, html: string): {
   value: unknown;
   insertedCount: number;
@@ -552,7 +721,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const rawOperation = String(formData.get("operation") || "remove");
   const operation: CleanerOperation =
-    rawOperation === "insert" ? "insert" : rawOperation === "edit" ? "edit" : "remove";
+    rawOperation === "insert"
+      ? "insert"
+      : rawOperation === "edit"
+        ? "edit"
+        : rawOperation === "gazebo"
+          ? "gazebo"
+          : "remove";
   const mode = String(formData.get("mode") || "preview") === "apply" ? "apply" : "preview";
   const productQuery = String(formData.get("productQuery") || "").trim();
   const namespace = String(formData.get("namespace") || "").trim();
@@ -600,10 +775,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       first: productLimit,
     });
     const products: VopoProduct[] = data.products?.nodes ?? [];
-    const patches: Array<CleanPatch | InsertPatch | EditPatch> = [];
+    const patches: Array<CleanPatch | InsertPatch | EditPatch | GazeboPatch> = [];
     const instructionHtml = operation === "insert"
       ? buildSizesInstructionHtml(productType, fromSize, toSize)
       : "";
+    const gazeboHtml = operation === "gazebo" ? buildGazeboFinishingInstructionHtml() : "";
 
     products.forEach((product) => {
       getCandidateMetafields(product, namespace, key).forEach((metafield) => {
@@ -623,6 +799,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             type: metafield.type,
             nextValue: JSON.stringify(inserted.value),
             insertedCount: inserted.insertedCount,
+          });
+          return;
+        }
+
+        if (operation === "gazebo") {
+          const gazebo = upsertGazeboFinishingJson(parsed, gazeboHtml);
+          if (!gazebo.gazeboCount) return;
+
+          patches.push({
+            productId: product.id,
+            productTitle: product.title,
+            productHandle: product.handle,
+            namespace: metafield.namespace,
+            key: metafield.key,
+            type: metafield.type,
+            nextValue: JSON.stringify(gazebo.value),
+            gazeboCount: gazebo.gazeboCount,
           });
           return;
         }
@@ -668,6 +861,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const affectedOptions = patches.reduce((total, patch) => {
       if ("removedCount" in patch) return total + patch.removedCount;
       if ("editedCount" in patch) return total + patch.editedCount;
+      if ("gazeboCount" in patch) return total + patch.gazeboCount;
       return total + patch.insertedCount;
     }, 0);
 
@@ -686,10 +880,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               ? patch.removedCount
               : "editedCount" in patch
                 ? patch.editedCount
+                : "gazeboCount" in patch
+                  ? patch.gazeboCount
                 : patch.insertedCount;
           const actionLabel =
             operation === "insert"
               ? mode === "apply" ? "inseriti" : "da inserire"
+              : operation === "gazebo"
+                ? mode === "apply" ? "configurati" : "da configurare"
               : operation === "edit"
                 ? mode === "apply" ? "modificati" : "da modificare"
                 : mode === "apply" ? "rimossi" : "da rimuovere";
@@ -729,7 +927,7 @@ export default function VopoCleaner() {
           <h1>Gestisci opzioni VOPO/BCPO da più prodotti</h1>
           <p>
             Cerca i prodotti, individua i metafield JSON candidati e rimuove, modifica
-            o inserisce opzioni instruction. Prima usa sempre
+            o inserisce opzioni instruction e configuratori dedicati. Prima usa sempre
             <strong> Anteprima</strong>.
           </p>
 
@@ -973,6 +1171,72 @@ export default function VopoCleaner() {
               </button>
             </div>
           </Form>
+
+          <Form method="post" className="vopo-cleaner__form vopo-cleaner__section">
+            <input name="operation" type="hidden" value="gazebo" />
+            <h2>Inserisci configuratore Gazebo</h2>
+            <p>
+              Aggiunge o aggiorna la variante instruction <strong>Lavorazioni e Rifiniture</strong>
+              con spicchi e fasce indipendenti. Prezzo base Shopify: 280 euro solo struttura.
+            </p>
+
+            <label className="vopo-cleaner__field vopo-cleaner__field--wide">
+              <span>Query prodotti Shopify</span>
+              <input
+                name="productQuery"
+                placeholder="es. Gazebo Personalizzato (gazebo-personalizzato), handle:gazebo-personalizzato"
+                required
+              />
+            </label>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Limite prodotti</span>
+                <input name="productLimit" type="number" min="1" max="100" defaultValue="25" />
+              </label>
+              <div className="vopo-cleaner__price-note" aria-label="Regole prezzo gazebo">
+                <strong>Regole prezzo</strong>
+                <span>1 spicchio: 270 euro · prima fascia solo fasce: 210 euro</span>
+                <span>Spicchi extra: 50 euro · fasce extra: 30 euro</span>
+              </div>
+            </div>
+
+            <div className="vopo-cleaner__grid">
+              <label className="vopo-cleaner__field">
+                <span>Namespace metafield opzionale</span>
+                <input name="namespace" placeholder="lascia vuoto per auto-detect" />
+              </label>
+              <label className="vopo-cleaner__field">
+                <span>Key metafield opzionale</span>
+                <input name="key" placeholder="lascia vuoto per auto-detect" />
+              </label>
+            </div>
+
+            <div className="vopo-cleaner__actions">
+              <button
+                className="vopo-cleaner__button"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="preview"
+              >
+                {isSubmitting && submittingOperation === "gazebo" && submittingMode === "preview"
+                  ? "Analisi..."
+                  : "Anteprima Gazebo"}
+              </button>
+              <button
+                className="vopo-cleaner__button vopo-cleaner__button--gazebo"
+                disabled={isSubmitting}
+                name="mode"
+                type="submit"
+                value="apply"
+              >
+                {isSubmitting && submittingOperation === "gazebo" && submittingMode === "apply"
+                  ? "Configuro..."
+                  : "Applica Gazebo"}
+              </button>
+            </div>
+          </Form>
         </section>
 
         <section className="vopo-cleaner__card vopo-cleaner__card--result">
@@ -995,6 +1259,8 @@ export default function VopoCleaner() {
                 {actionData.mode === "apply"
                   ? actionData.operation === "insert"
                     ? "Inserimento completato"
+                    : actionData.operation === "gazebo"
+                      ? "Configuratore Gazebo completato"
                     : actionData.operation === "edit"
                       ? "Modifica completata"
                     : "Cancellazione completata"
@@ -1158,9 +1424,31 @@ const styles = `
     box-shadow: 0 12px 24px rgba(180, 83, 9, .16);
   }
 
+  .vopo-cleaner__button--gazebo {
+    background: linear-gradient(135deg, #00c853 0%, #047857 100%);
+    box-shadow: 0 12px 24px rgba(0, 200, 83, .18);
+  }
+
   .vopo-cleaner__button:disabled {
     cursor: wait;
     opacity: .72;
+  }
+
+  .vopo-cleaner__price-note {
+    border: 1px solid #ccefd7;
+    border-radius: 16px;
+    background: #f0fbf3;
+    color: #176b3a;
+    display: grid;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    padding: 12px 14px;
+  }
+
+  .vopo-cleaner__price-note strong {
+    color: #0f7a39;
+    font-size: 13px;
   }
 
   .vopo-cleaner__errors,
