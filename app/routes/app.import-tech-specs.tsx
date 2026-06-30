@@ -20,6 +20,11 @@ type CsvRow = {
 
 type ImportResult = {
   ok: boolean;
+  mode?: "techSpecs" | "sizeTable";
+  preview?: boolean;
+  previewHtml?: string;
+  previewRows?: number;
+  targetProduct?: string;
   errors?: string[];
   importedProducts?: number;
   importedSheets?: number;
@@ -62,6 +67,8 @@ type ImportConfig = {
 
 const METAFIELD_NAMESPACE = "custom";
 const METAFIELD_KEY = "tech_specs";
+const SIZE_TABLE_METAFIELD_NAMESPACE = "custom";
+const SIZE_TABLE_METAFIELD_KEY = "tabella_delle_taglie";
 
 const METAFIELD_DEFINITION_QUERY = `#graphql
   query TechSpecsMetafieldDefinition($namespace: String!, $key: String!) {
@@ -386,6 +393,99 @@ function parseTechSpecsFromDescription(
   }
 
   return rows;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function normalizeSizeNumber(value: string) {
+  return value.trim().replace(",", ".");
+}
+
+function parseSizeTableText(text: string) {
+  const rows: Array<{ size: string; width: string; length: string }> = [];
+  let tolerance = "";
+
+  text
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\t+/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .forEach((line, index) => {
+      if (/^taglia\b/i.test(line)) return;
+
+      if (/^(tol\.?|tolleranza)\b/i.test(line)) {
+        const numbers = line.match(/[-+]?\d+(?:[,.]\d+)?/g)?.map(normalizeSizeNumber) ?? [];
+        if (numbers.length >= 2) {
+          tolerance = `Tol. +/- ${numbers[0]} / ${numbers[1]} cm`;
+        } else if (numbers.length === 1) {
+          tolerance = `Tol. +/- ${numbers[0]} cm`;
+        } else {
+          tolerance = escapeHtml(line);
+        }
+        return;
+      }
+
+      const parts = line.split(" ");
+      const size = parts[0]?.trim();
+      const width = parts[1] ? normalizeSizeNumber(parts[1]) : "";
+      const length = parts[2] ? normalizeSizeNumber(parts[2]) : "";
+
+      if (!size || !width || !length) {
+        throw new Error(
+          `Riga ${index + 1}: inserisci Taglia, Larghezza e Lunghezza. Esempio: M 59 75.`,
+        );
+      }
+
+      if (!/^-?\d+(?:\.\d+)?$/.test(width) || !/^-?\d+(?:\.\d+)?$/.test(length)) {
+        throw new Error(`Riga ${index + 1}: larghezza e lunghezza devono essere numeriche.`);
+      }
+
+      rows.push({
+        size: escapeHtml(size),
+        width: escapeHtml(width),
+        length: escapeHtml(length),
+      });
+    });
+
+  if (!rows.length) {
+    throw new Error("Incolla almeno una riga taglia con larghezza e lunghezza.");
+  }
+
+  const body = rows
+    .map((row) => `      <tr><td>${row.size}</td><td>${row.width}</td><td>${row.length}</td></tr>`)
+    .join("\n");
+  const footer = tolerance
+    ? `\n    <tfoot>\n      <tr>\n        <td colspan="3">${tolerance}</td>\n      </tr>\n    </tfoot>`
+    : "";
+
+  return {
+    rows,
+    tolerance,
+    html: `<div>
+  <table class="size-table" role="table" aria-label="Tabella taglie (cm)">
+    <thead>
+      <tr>
+        <th>Taglia</th>
+        <th>Larghezza (cm)</th>
+        <th>Lunghezza (cm)</th>
+      </tr>
+    </thead>
+    <tbody>
+${body}
+    </tbody>${footer}
+  </table>
+
+  <p style="font-size:12px; text-align:center; margin-top:4px;">
+    Le misure sono indicative. Verificare i centimetri per una scelta più precisa.
+  </p>
+</div>`,
+  };
 }
 
 function groupRows(rows: CsvRow[]) {
@@ -770,6 +870,46 @@ async function setProductTechSpecs(
   }
 }
 
+async function getProductMetafieldType(
+  admin: any,
+  namespace: string,
+  key: string,
+  fallbackType: string,
+) {
+  const data = await adminGraphql(admin, METAFIELD_DEFINITION_QUERY, {
+    namespace,
+    key,
+  });
+  const definition: MetaFieldDefinition | undefined =
+    data.metafieldDefinitions?.nodes?.[0];
+
+  return definition?.type?.name || fallbackType;
+}
+
+async function setProductSizeTable(admin: any, productId: string, html: string) {
+  const metafieldType = await getProductMetafieldType(
+    admin,
+    SIZE_TABLE_METAFIELD_NAMESPACE,
+    SIZE_TABLE_METAFIELD_KEY,
+    "multi_line_text_field",
+  );
+  const data = await adminGraphql(admin, METAFIELDS_SET_MUTATION, {
+    metafields: [
+      {
+        ownerId: productId,
+        namespace: SIZE_TABLE_METAFIELD_NAMESPACE,
+        key: SIZE_TABLE_METAFIELD_KEY,
+        type: metafieldType,
+        value: html,
+      },
+    ],
+  });
+  const errors = data.metafieldsSet?.userErrors ?? [];
+  if (errors.length) {
+    throw new Error(errors.map((error: { message: string }) => error.message).join(" "));
+  }
+}
+
 async function importRows(admin: any, rows: CsvRow[]) {
   const config = await discoverImportConfig(admin);
   const grouped = groupRows(rows);
@@ -839,15 +979,63 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const importSource = String(formData.get("importSource") || "csv");
+  const sizeTableIntent = String(formData.get("sizeTableIntent") || "preview");
 
   try {
     let rows: CsvRow[];
+
+    if (importSource === "sizeTable") {
+      const productHandle = String(formData.get("sizeTableProductHandle") || "").trim();
+      const rawSizeTable = String(formData.get("sizeTableText") || "").trim();
+
+      if (!productHandle) {
+        return {
+          ok: false,
+          mode: "sizeTable",
+          errors: ["Inserisci l'handle prodotto prima di generare la tabella taglie."],
+        } satisfies ImportResult;
+      }
+
+      const parsed = parseSizeTableText(rawSizeTable);
+      const product = await findProduct(admin, productHandle);
+
+      if (sizeTableIntent === "apply") {
+        await setProductSizeTable(admin, product.id, parsed.html);
+        return {
+          ok: true,
+          mode: "sizeTable",
+          importedProducts: 1,
+          importedSheets: 0,
+          importedSpecs: parsed.rows.length,
+          targetProduct: `${product.title} (${product.handle})`,
+          previewHtml: parsed.html,
+          previewRows: parsed.rows.length,
+          details: [
+            `${product.title}: tabella taglie inserita in ${SIZE_TABLE_METAFIELD_NAMESPACE}.${SIZE_TABLE_METAFIELD_KEY}`,
+          ],
+        } satisfies ImportResult;
+      }
+
+      return {
+        ok: true,
+        mode: "sizeTable",
+        preview: true,
+        importedProducts: 0,
+        importedSheets: 0,
+        importedSpecs: parsed.rows.length,
+        targetProduct: `${product.title} (${product.handle})`,
+        previewHtml: parsed.html,
+        previewRows: parsed.rows.length,
+        details: [`Anteprima generata per ${product.title}: ${parsed.rows.length} taglie.`],
+      } satisfies ImportResult;
+    }
 
     if (importSource === "description") {
       const productHandle = String(formData.get("productHandle") || "").trim();
       if (!productHandle) {
         return {
           ok: false,
+          mode: "techSpecs",
           errors: ["Inserisci l'handle prodotto prima di importare dalla descrizione."],
         } satisfies ImportResult;
       }
@@ -865,6 +1053,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (!(file instanceof File) || !file.name) {
         return {
           ok: false,
+          mode: "techSpecs",
           errors: ["Carica un file CSV prima di importare."],
         } satisfies ImportResult;
       }
@@ -875,11 +1064,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const result = await importRows(admin, rows);
     return {
       ok: true,
+      mode: "techSpecs",
       ...result,
     } satisfies ImportResult;
   } catch (error) {
     return {
       ok: false,
+      mode: importSource === "sizeTable" ? "sizeTable" : "techSpecs",
       errors: [error instanceof Error ? error.message : "Errore import specifiche tecniche."],
     } satisfies ImportResult;
   }
@@ -959,6 +1150,84 @@ export default function ImportTechSpecs() {
             </button>
           </Form>
 
+          <div className="tech-import__divider" />
+
+          <Form method="post" className="tech-import__form">
+            <input name="importSource" type="hidden" value="sizeTable" />
+            <div className="tech-import__form-head">
+              <h2>Tabella taglie</h2>
+              <p>
+                Incolla le misure in formato semplice. L'app crea l'HTML della tabella
+                e lo salva nel metafield <code>custom.tabella_delle_taglie</code>.
+              </p>
+            </div>
+            <label className="tech-import__field">
+              <span>Handle prodotto</span>
+              <input
+                name="sizeTableProductHandle"
+                type="text"
+                placeholder="es. t-shirt-premium"
+                required
+              />
+            </label>
+            <label className="tech-import__field">
+              <span>Testo tabella taglie</span>
+              <textarea
+                name="sizeTableText"
+                rows={10}
+                placeholder={`Taglia Larghezza Lunghezza
+XXS 52,7 69
+XS 54.8 71
+S 56.9 73
+M 59 75
+Tol +/- 2.5 2.5`}
+                required
+              />
+            </label>
+            <div className="tech-import__actions">
+              <button
+                className="tech-import__button tech-import__button--secondary"
+                disabled={isImporting}
+                name="sizeTableIntent"
+                type="submit"
+                value="preview"
+              >
+                {isImporting && importingSource === "sizeTable"
+                  ? "Genero anteprima..."
+                  : "Anteprima tabella"}
+              </button>
+              <button
+                className="tech-import__button"
+                disabled={isImporting}
+                name="sizeTableIntent"
+                type="submit"
+                value="apply"
+              >
+                {isImporting && importingSource === "sizeTable"
+                  ? "Inserisco..."
+                  : "Inserisci nel metafield"}
+              </button>
+            </div>
+          </Form>
+
+          {actionData?.mode === "sizeTable" && actionData.previewHtml ? (
+            <div className="tech-import__preview">
+              <div className="tech-import__form-head">
+                <h2>
+                  {actionData.preview ? "Anteprima tabella taglie" : "Tabella taglie inserita"}
+                </h2>
+                <p>
+                  {actionData.targetProduct} - {actionData.previewRows} righe taglia.
+                </p>
+              </div>
+              <div
+                className="tech-import__size-preview"
+                dangerouslySetInnerHTML={{ __html: actionData.previewHtml }}
+              />
+              <pre>{actionData.previewHtml}</pre>
+            </div>
+          ) : null}
+
           {actionData?.errors?.length ? (
             <div className="tech-import__errors">
               {actionData.errors.map((error) => (
@@ -969,10 +1238,16 @@ export default function ImportTechSpecs() {
 
           {actionData?.ok ? (
             <div className="tech-import__success">
-              <strong>Import completato</strong>
+              <strong>
+                {actionData.mode === "sizeTable" && actionData.preview
+                  ? "Anteprima completata"
+                  : actionData.mode === "sizeTable"
+                    ? "Inserimento completato"
+                    : "Import completato"}
+              </strong>
               <p>
                 Prodotti: {actionData.importedProducts}, schede:{" "}
-                {actionData.importedSheets}, righe tecniche:{" "}
+                {actionData.importedSheets}, righe:{" "}
                 {actionData.importedSpecs}
               </p>
               {actionData.details?.map((detail) => (
@@ -1103,7 +1378,8 @@ const styles = `
     text-transform: uppercase;
   }
 
-  .tech-import__field input {
+  .tech-import__field input,
+  .tech-import__field textarea {
     min-height: 48px;
     border: 1px solid #cad8d0;
     border-radius: 14px;
@@ -1113,6 +1389,19 @@ const styles = `
     font-size: 14px;
     text-transform: none;
     letter-spacing: 0;
+  }
+
+  .tech-import__field textarea {
+    min-height: 190px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    line-height: 1.55;
+  }
+
+  .tech-import__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .tech-import__button {
@@ -1125,6 +1414,13 @@ const styles = `
     font-size: 15px;
     font-weight: 900;
     box-shadow: 0 12px 24px rgba(12, 140, 63, .2);
+  }
+
+  .tech-import__button--secondary {
+    border: 1px solid #b9d8c4;
+    background: #ffffff;
+    color: #0f7a39;
+    box-shadow: none;
   }
 
   .tech-import__button:disabled {
@@ -1171,6 +1467,48 @@ const styles = `
     font-size: 12px;
     line-height: 1.55;
     white-space: pre;
+  }
+
+  .tech-import__preview {
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid #dce8df;
+    border-radius: 18px;
+    background: #fbfefd;
+    display: grid;
+    gap: 16px;
+  }
+
+  .tech-import__size-preview {
+    padding: 16px;
+    border: 1px solid #dce8df;
+    border-radius: 16px;
+    background: #ffffff;
+  }
+
+  .tech-import__size-preview .size-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #1f2933;
+    font-size: 13px;
+  }
+
+  .tech-import__size-preview .size-table th,
+  .tech-import__size-preview .size-table td {
+    border: 1px solid #d9e7de;
+    padding: 9px 10px;
+    text-align: center;
+  }
+
+  .tech-import__size-preview .size-table th {
+    background: #edf8f0;
+    color: #0f7a39;
+    font-weight: 900;
+  }
+
+  .tech-import__size-preview .size-table tfoot td {
+    color: #667085;
+    font-weight: 800;
   }
 
   .tech-import__hint {
