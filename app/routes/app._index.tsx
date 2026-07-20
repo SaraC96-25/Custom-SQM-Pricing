@@ -60,6 +60,8 @@ type ProductSummary = {
   status: string;
   enabled: boolean;
   minimumAreaM2: number;
+  minWidthCm: number;
+  minHeightCm: number;
   ranges: DiscountRange[];
   promoConfig: PromoFormatConfig;
   productConfig: SqmProductConfig;
@@ -219,6 +221,12 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           minimumAreaMetafield: metafield(namespace: "custom", key: "sqm_minimum_area_m2") {
+            value
+          }
+          minWidthMetafield: metafield(namespace: "custom", key: "sqm_min_width_cm") {
+            value
+          }
+          minHeightMetafield: metafield(namespace: "custom", key: "sqm_min_height_cm") {
             value
           }
           rangesMetafield: metafield(namespace: "custom", key: "sqm_discount_ranges") {
@@ -440,6 +448,8 @@ function mapProduct(product: any): ProductSummary {
     status: product.status,
     enabled: product.enabledMetafield?.value === "true",
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
+    minWidthCm: Math.max(0, toNumber(product.minWidthMetafield?.value) ?? 1),
+    minHeightCm: Math.max(0, toNumber(product.minHeightMetafield?.value) ?? 1),
     ranges: normalizeRanges(product.rangesMetafield?.value),
     promoConfig: parsePromoConfig(product.promoFormatsMetafield?.value),
     productConfig: normalizeProductConfig(product.productConfigMetafield?.value),
@@ -563,6 +573,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     0,
     toNumber(String(formData.get("minimumAreaM2") ?? "0")) ?? 0,
   );
+  const minWidthCm = Math.max(
+    0,
+    toNumber(String(formData.get("minWidthCm") ?? "1")) ?? 1,
+  );
+  const minHeightCm = Math.max(
+    0,
+    toNumber(String(formData.get("minHeightCm") ?? "1")) ?? 1,
+  );
   const ranges = normalizeRanges(String(formData.get("ranges") ?? "[]"));
   const promoConfig = normalizePromoConfig(
     parsePromoConfig(String(formData.get("promoConfig") ?? "{}")),
@@ -597,6 +615,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_minimum_area_m2",
           type: "number_decimal",
           value: minimumAreaM2.toFixed(3),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_min_width_cm",
+          type: "number_decimal",
+          value: minWidthCm.toFixed(1),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_min_height_cm",
+          type: "number_decimal",
+          value: minHeightCm.toFixed(1),
         },
         {
           ownerId: productId,
@@ -654,6 +686,8 @@ export default function Index() {
   const [minimumAreaM2, setMinimumAreaM2] = useState(
     selectedProduct?.minimumAreaM2 ?? 0,
   );
+  const [minWidthCm, setMinWidthCm] = useState(selectedProduct?.minWidthCm ?? 1);
+  const [minHeightCm, setMinHeightCm] = useState(selectedProduct?.minHeightCm ?? 1);
   const [ranges, setRanges] = useState<DiscountRange[]>(
     selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
   );
@@ -692,6 +726,8 @@ export default function Index() {
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
+    setMinWidthCm(selectedProduct?.minWidthCm ?? 1);
+    setMinHeightCm(selectedProduct?.minHeightCm ?? 1);
     setRanges(
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
@@ -1225,6 +1261,8 @@ export default function Index() {
                   type="hidden"
                   value={String(minimumAreaM2)}
                 />
+                <input name="minWidthCm" type="hidden" value={String(minWidthCm)} />
+                <input name="minHeightCm" type="hidden" value={String(minHeightCm)} />
                 <input
                   name="ranges"
                   type="hidden"
@@ -2024,6 +2062,44 @@ export default function Index() {
                           value={minimumAreaM2}
                         />
                       </label>
+
+                      <label className="sqm-field">
+                        <span>Base minima (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setMinWidthCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="1"
+                          step="0.1"
+                          type="number"
+                          value={minWidthCm}
+                        />
+                      </label>
+
+                      <label className="sqm-field">
+                        <span>Altezza minima (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setMinHeightCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="1"
+                          step="0.1"
+                          type="number"
+                          value={minHeightCm}
+                        />
+                      </label>
                     </div>
 
                     <div className="sqm-section-heading">
@@ -2327,6 +2403,9 @@ const styles = `
   }
 
   .sqm-minimum-box {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
     margin-bottom: 18px;
   }
 
@@ -3068,6 +3147,10 @@ const styles = `
     .sqm-option-card__grid--value,
     .sqm-option-card__toggles {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sqm-minimum-box {
+      grid-template-columns: 1fr;
     }
   }
 
