@@ -10,6 +10,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 type TagImporterMode = "preview" | "apply";
+type TagImporterOperation = "add" | "remove";
 
 type ProductMatch = {
   id: string;
@@ -20,7 +21,7 @@ type ProductMatch = {
 
 type ProductTagResult = {
   handle: string;
-  status: "tagged" | "alreadyTagged" | "missing" | "error";
+  status: "changed" | "skipped" | "missing" | "error";
   title?: string;
   message?: string;
 };
@@ -28,11 +29,12 @@ type ProductTagResult = {
 type TagImporterResult = {
   ok: boolean;
   mode?: TagImporterMode;
+  operation?: TagImporterOperation;
   tag?: string;
   totalHandles?: number;
   foundProducts?: number;
-  taggedProducts?: number;
-  alreadyTaggedProducts?: number;
+  changedProducts?: number;
+  skippedProducts?: number;
   missingProducts?: number;
   details?: ProductTagResult[];
   errors?: string[];
@@ -54,6 +56,20 @@ const FIND_PRODUCT_QUERY = `#graphql
 const TAGS_ADD_MUTATION = `#graphql
   mutation TagImporterTagsAdd($id: ID!, $tags: [String!]!) {
     tagsAdd(id: $id, tags: $tags) {
+      node {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const TAGS_REMOVE_MUTATION = `#graphql
+  mutation TagImporterTagsRemove($id: ID!, $tags: [String!]!) {
+    tagsRemove(id: $id, tags: $tags) {
       node {
         id
       }
@@ -151,10 +167,23 @@ async function addTag(admin: any, product: ProductMatch, tag: string) {
   }
 }
 
+async function removeTag(admin: any, product: ProductMatch, tag: string) {
+  const data = await adminGraphql(admin, TAGS_REMOVE_MUTATION, {
+    id: product.id,
+    tags: [tag],
+  });
+
+  const userErrors = data.tagsRemove.userErrors ?? [];
+  if (userErrors.length) {
+    throw new Error(userErrors.map((error: { message: string }) => error.message).join(" "));
+  }
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const mode = formData.get("mode") === "apply" ? "apply" : "preview";
+  const operation = formData.get("operation") === "remove" ? "remove" : "add";
   const handlesText = String(formData.get("handles") ?? "");
   const tag = normalizeTag(String(formData.get("tag") ?? ""));
   const handles = parseHandles(handlesText);
@@ -162,7 +191,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!tag) {
     return {
       ok: false,
-      errors: ["Inserisci il tag da applicare."],
+      errors: [`Inserisci il tag da ${operation === "remove" ? "rimuovere" : "applicare"}.`],
     } satisfies TagImporterResult;
   }
 
@@ -176,8 +205,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     const details: ProductTagResult[] = [];
     let foundProducts = 0;
-    let taggedProducts = 0;
-    let alreadyTaggedProducts = 0;
+    let changedProducts = 0;
+    let skippedProducts = 0;
     let missingProducts = 0;
 
     for (const handle of handles) {
@@ -195,38 +224,59 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       foundProducts += 1;
 
-      if (product.tags.some((existingTag) => sameTag(existingTag, tag))) {
-        alreadyTaggedProducts += 1;
+      const hasTag = product.tags.some((existingTag) => sameTag(existingTag, tag));
+
+      if (operation === "add" && hasTag) {
+        skippedProducts += 1;
         details.push({
           handle,
           title: product.title,
-          status: "alreadyTagged",
+          status: "skipped",
           message: "Tag gia presente",
         });
         continue;
       }
 
-      if (mode === "apply") {
-        await addTag(admin, product, tag);
+      if (operation === "remove" && !hasTag) {
+        skippedProducts += 1;
+        details.push({
+          handle,
+          title: product.title,
+          status: "skipped",
+          message: "Tag non presente",
+        });
+        continue;
       }
 
-      taggedProducts += 1;
+      if (mode === "apply") {
+        if (operation === "remove") {
+          await removeTag(admin, product, tag);
+        } else {
+          await addTag(admin, product, tag);
+        }
+      }
+
+      changedProducts += 1;
       details.push({
         handle,
         title: product.title,
-        status: "tagged",
-        message: mode === "apply" ? "Tag applicato" : "Tag da applicare",
+        status: "changed",
+        message:
+          operation === "remove"
+            ? mode === "apply" ? "Tag rimosso" : "Tag da rimuovere"
+            : mode === "apply" ? "Tag applicato" : "Tag da applicare",
       });
     }
 
     return {
       ok: true,
       mode,
+      operation,
       tag,
       totalHandles: handles.length,
       foundProducts,
-      taggedProducts,
-      alreadyTaggedProducts,
+      changedProducts,
+      skippedProducts,
       missingProducts,
       details,
     } satisfies TagImporterResult;
@@ -234,6 +284,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return {
       ok: false,
       mode,
+      operation,
       tag,
       errors: [error instanceof Error ? error.message : "Errore durante l import dei tag."],
     } satisfies TagImporterResult;
@@ -246,10 +297,11 @@ export default function TagImporter() {
   const shopify = useAppBridge();
   const isSubmitting = navigation.state !== "idle";
   const submittingMode = navigation.formData?.get("mode");
+  const submittingOperation = navigation.formData?.get("operation") ?? "add";
 
   useEffect(() => {
     if (actionData?.ok && actionData.mode === "apply") {
-      shopify.toast.show("Tag applicati ai prodotti");
+      shopify.toast.show(actionData.operation === "remove" ? "Tag rimossi dai prodotti" : "Tag applicati ai prodotti");
     }
   }, [actionData, shopify]);
 
@@ -259,21 +311,29 @@ export default function TagImporter() {
       <div className="tag-importer">
         <section className="tag-importer__card">
           <p className="tag-importer__kicker">Tag massivi</p>
-          <h1>Applica un tag a una lista di prodotti</h1>
+          <h1>Aggiungi o rimuovi un tag da una lista di prodotti</h1>
           <p>
             Incolla gli handle prodotto, uno per riga. Puoi usare anche URL prodotto
             oppure righe tipo <strong>Nome prodotto (handle-prodotto)</strong>. Prima
-            usa <strong>Anteprima</strong>, poi applica il tag.
+            usa <strong>Anteprima</strong>, poi applica o rimuovi il tag.
           </p>
 
           <Form method="post" className="tag-importer__form">
             <label className="tag-importer__field tag-importer__field--wide">
-              <span>Tag da applicare</span>
+              <span>Tag</span>
               <input
                 name="tag"
                 placeholder="es. CustomPrice, Abbigliamento Promo, calcolatore"
                 required
               />
+            </label>
+
+            <label className="tag-importer__field tag-importer__field--wide">
+              <span>Azione</span>
+              <select name="operation" defaultValue="add">
+                <option value="add">Aggiungi tag ai prodotti</option>
+                <option value="remove">Rimuovi tag dai prodotti</option>
+              </select>
             </label>
 
             <label className="tag-importer__field tag-importer__field--wide">
@@ -294,7 +354,11 @@ export default function TagImporter() {
                 type="submit"
                 value="preview"
               >
-                {isSubmitting && submittingMode === "preview" ? "Analisi..." : "Anteprima tag"}
+                {isSubmitting && submittingMode === "preview"
+                  ? "Analisi..."
+                  : submittingOperation === "remove"
+                    ? "Anteprima rimozione"
+                    : "Anteprima tag"}
               </button>
               <button
                 className="tag-importer__button tag-importer__button--primary"
@@ -303,7 +367,9 @@ export default function TagImporter() {
                 type="submit"
                 value="apply"
               >
-                {isSubmitting && submittingMode === "apply" ? "Applico..." : "Applica tag"}
+                {isSubmitting && submittingMode === "apply"
+                  ? submittingOperation === "remove" ? "Rimuovo..." : "Applico..."
+                  : "Esegui azione"}
               </button>
             </div>
           </Form>
@@ -318,23 +384,25 @@ export default function TagImporter() {
           ) : actionData.ok ? (
             <div className="tag-importer__success">
               <strong>
-                {actionData.mode === "apply" ? "Inserimento completato" : "Anteprima completata"}
+                {actionData.mode === "apply" ? "Operazione completata" : "Anteprima completata"}
               </strong>
               <p>
                 Tag: <strong>{actionData.tag}</strong>. Handle analizzati:{" "}
                 {actionData.totalHandles}. Prodotti trovati: {actionData.foundProducts}.
-                {actionData.mode === "apply" ? " Prodotti taggati: " : " Prodotti da taggare: "}
-                {actionData.taggedProducts}. Gia taggati: {actionData.alreadyTaggedProducts}.
+                {actionData.operation === "remove"
+                  ? actionData.mode === "apply" ? " Prodotti modificati: " : " Prodotti da modificare: "
+                  : actionData.mode === "apply" ? " Prodotti taggati: " : " Prodotti da taggare: "}
+                {actionData.changedProducts}. Saltati: {actionData.skippedProducts}.
                 Mancanti: {actionData.missingProducts}.
               </p>
               <ul>
                 {actionData.details?.map((detail) => (
                   <li key={`${detail.handle}-${detail.status}`}>
                     <span className={`tag-importer__badge tag-importer__badge--${detail.status}`}>
-                      {detail.status === "tagged"
+                      {detail.status === "changed"
                         ? actionData.mode === "apply" ? "OK" : "DA FARE"
-                        : detail.status === "alreadyTagged"
-                          ? "GIA"
+                        : detail.status === "skipped"
+                          ? "SKIP"
                           : detail.status === "missing"
                             ? "NO"
                             : "ERR"}
@@ -422,6 +490,7 @@ const styles = `
   }
 
   .tag-importer__field input,
+  .tag-importer__field select,
   .tag-importer__field textarea {
     width: 100%;
     min-height: 54px;
@@ -519,12 +588,12 @@ const styles = `
     font-weight: 900;
   }
 
-  .tag-importer__badge--tagged {
+  .tag-importer__badge--changed {
     background: #dcfce7;
     color: #15803d;
   }
 
-  .tag-importer__badge--alreadyTagged {
+  .tag-importer__badge--skipped {
     background: #fef3c7;
     color: #92400e;
   }
