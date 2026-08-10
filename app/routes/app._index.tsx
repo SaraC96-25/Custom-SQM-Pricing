@@ -78,8 +78,10 @@ type LoaderData = {
 
 type ActionData = {
   ok: boolean;
+  action?: "save" | "duplicate";
   errors?: string[];
   savedProductId?: string;
+  duplicatedProductId?: string;
 };
 
 type CartTransformStatus = {
@@ -567,6 +569,128 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
+  const actionType = String(formData.get("actionType") ?? "saveProduct");
+
+  if (actionType === "duplicateConfig") {
+    const sourceProductId = String(formData.get("sourceProductId") ?? "");
+    const targetProductId = String(formData.get("targetProductId") ?? "");
+    const enabled = String(formData.get("sourceEnabled") ?? "false") === "true";
+    const minimumAreaM2 = Math.max(
+      0,
+      toNumber(String(formData.get("sourceMinimumAreaM2") ?? "0")) ?? 0,
+    );
+    const minWidthCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceMinWidthCm") ?? "1")) ?? 1,
+    );
+    const minHeightCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceMinHeightCm") ?? "1")) ?? 1,
+    );
+    const ranges = normalizeRanges(String(formData.get("sourceRanges") ?? "[]"));
+    const promoConfig = normalizePromoConfig(
+      parsePromoConfig(String(formData.get("sourcePromoConfig") ?? "{}")),
+    );
+    const productConfigRaw = String(formData.get("sourceProductConfig") ?? "{}");
+    const productConfig = normalizeProductConfig(productConfigRaw);
+    const errors = validateRanges(ranges);
+    errors.push(...validatePromoConfig(promoConfig));
+    errors.push(...validateProductConfig(productConfigRaw));
+
+    if (!sourceProductId) {
+      errors.push("Seleziona un prodotto sorgente.");
+    }
+    if (!targetProductId) {
+      errors.push("Seleziona un prodotto destinazione.");
+    }
+    if (sourceProductId && targetProductId && sourceProductId === targetProductId) {
+      errors.push("Il prodotto destinazione deve essere diverso dal prodotto sorgente.");
+    }
+
+    if (errors.length) {
+      return { ok: false, action: "duplicate", errors } satisfies ActionData;
+    }
+
+    const response = await admin.graphql(METAFIELDS_SET_MUTATION, {
+      variables: {
+        metafields: [
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_pricing_enabled",
+            type: "boolean",
+            value: enabled ? "true" : "false",
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_minimum_area_m2",
+            type: "number_decimal",
+            value: minimumAreaM2.toFixed(3),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_min_width_cm",
+            type: "number_decimal",
+            value: minWidthCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_min_height_cm",
+            type: "number_decimal",
+            value: minHeightCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_discount_ranges",
+            type: "json",
+            value: JSON.stringify(ranges),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_promo_formats",
+            type: "json",
+            value: JSON.stringify(promoConfig),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_product_config",
+            type: "json",
+            value: JSON.stringify(productConfig),
+          },
+        ],
+      },
+    });
+    const responseJson: any = await response.json();
+    const userErrors =
+      responseJson.data?.metafieldsSet?.userErrors?.map(
+        (error: { message: string }) => error.message,
+      ) ?? [];
+
+    if (responseJson.errors?.length || userErrors.length) {
+      return {
+        ok: false,
+        action: "duplicate",
+        errors: [
+          ...(responseJson.errors?.map((error: any) => error.message) ?? []),
+          ...userErrors,
+        ],
+      } satisfies ActionData;
+    }
+
+    return {
+      ok: true,
+      action: "duplicate",
+      savedProductId: targetProductId,
+      duplicatedProductId: targetProductId,
+    } satisfies ActionData;
+  }
+
   const productId = String(formData.get("productId") ?? "");
   const enabled = String(formData.get("enabled") ?? "false") === "true";
   const minimumAreaM2 = Math.max(
@@ -672,6 +796,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   return {
     ok: true,
+    action: "save",
     savedProductId: productId,
   } satisfies ActionData;
 };
@@ -680,7 +805,9 @@ export default function Index() {
   const { products, selectedProduct, search, cartTransformStatus } =
     useLoaderData() as LoaderData;
   const fetcher = useFetcher();
+  const duplicateFetcher = useFetcher();
   const actionData = fetcher.data as ActionData | undefined;
+  const duplicateActionData = duplicateFetcher.data as ActionData | undefined;
   const shopify = useAppBridge();
   const [enabled, setEnabled] = useState(selectedProduct?.enabled ?? false);
   const [minimumAreaM2, setMinimumAreaM2] = useState(
@@ -707,9 +834,15 @@ export default function Index() {
     null,
   );
   const [activeTab, setActiveTab] = useState<ConfigTab>("promo");
+  const [duplicateTargetProductId, setDuplicateTargetProductId] = useState("");
 
   const isSaving = fetcher.state !== "idle";
+  const isDuplicating = duplicateFetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
+  const duplicateTargets = useMemo(
+    () => products.filter((product) => product.id !== selectedProduct?.id),
+    [products, selectedProduct?.id],
+  );
   const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
   const promoErrors = useMemo(
     () => validatePromoConfig(normalizePromoConfig(promoConfig)),
@@ -741,13 +874,22 @@ export default function Index() {
     setDraftOptionGroup(null);
     setEditingOptionGroupIndex(null);
     setActiveTab("promo");
-  }, [selectedProduct]);
+    setDuplicateTargetProductId(
+      products.find((product) => product.id !== selectedProduct?.id)?.id ?? "",
+    );
+  }, [products, selectedProduct]);
 
   useEffect(() => {
     if (actionData?.ok) {
       shopify.toast.show("Configurazione mq salvata");
     }
   }, [actionData, shopify]);
+
+  useEffect(() => {
+    if (duplicateActionData?.ok) {
+      shopify.toast.show("Configurazione duplicata");
+    }
+  }, [duplicateActionData, shopify]);
 
   const updateRange = (
     index: number,
@@ -1253,7 +1395,91 @@ export default function Index() {
 
           <main className="sqm-main">
             {selectedProduct ? (
+              <>
+              <duplicateFetcher.Form method="post" className="sqm-panel sqm-duplicate-panel">
+                <input name="actionType" type="hidden" value="duplicateConfig" />
+                <input name="sourceProductId" type="hidden" value={selectedProduct.id} />
+                <input name="sourceEnabled" type="hidden" value={String(selectedProduct.enabled)} />
+                <input
+                  name="sourceMinimumAreaM2"
+                  type="hidden"
+                  value={String(selectedProduct.minimumAreaM2)}
+                />
+                <input
+                  name="sourceMinWidthCm"
+                  type="hidden"
+                  value={String(selectedProduct.minWidthCm)}
+                />
+                <input
+                  name="sourceMinHeightCm"
+                  type="hidden"
+                  value={String(selectedProduct.minHeightCm)}
+                />
+                <input
+                  name="sourceRanges"
+                  type="hidden"
+                  value={JSON.stringify(selectedProduct.ranges)}
+                />
+                <input
+                  name="sourcePromoConfig"
+                  type="hidden"
+                  value={JSON.stringify(selectedProduct.promoConfig)}
+                />
+                <input
+                  name="sourceProductConfig"
+                  type="hidden"
+                  value={selectedProduct.productConfigJson}
+                />
+
+                <div className="sqm-panel__header sqm-panel__header--duplicate">
+                  <div>
+                    <p className="sqm-kicker">Duplica configurazione</p>
+                    <h2>Copia questa configurazione su un altro prodotto</h2>
+                    <p className="sqm-muted">
+                      Copia range mq, formati promo, opzioni prodotto,
+                      imballaggio e stato attivo dalla configurazione salvata di{" "}
+                      <strong>{selectedProduct.title}</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="sqm-duplicate-grid">
+                  <label className="sqm-field">
+                    <span>Prodotto destinazione</span>
+                    <select
+                      name="targetProductId"
+                      onChange={(event) =>
+                        setDuplicateTargetProductId(event.currentTarget.value)
+                      }
+                      value={duplicateTargetProductId}
+                    >
+                      {duplicateTargets.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="sqm-button"
+                    disabled={isDuplicating || !duplicateTargetProductId}
+                    type="submit"
+                  >
+                    {isDuplicating ? "Duplicazione..." : "Duplica configurazione"}
+                  </button>
+                </div>
+
+                {duplicateActionData?.errors?.length ? (
+                  <div className="sqm-errors sqm-errors--compact">
+                    {duplicateActionData.errors.map((error) => (
+                      <p key={error}>{error}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </duplicateFetcher.Form>
+
               <fetcher.Form method="post" className="sqm-panel">
+                <input name="actionType" type="hidden" value="saveProduct" />
                 <input name="productId" type="hidden" value={selectedProduct.id} />
                 <input name="enabled" type="hidden" value={String(enabled)} />
                 <input
@@ -2308,6 +2534,7 @@ export default function Index() {
                   </button>
                 </div>
               </fetcher.Form>
+              </>
             ) : (
               <div className="sqm-panel">
                 <h1>Seleziona un prodotto</h1>
@@ -2375,6 +2602,11 @@ const styles = `
     padding: 20px;
   }
 
+  .sqm-duplicate-panel {
+    margin-bottom: 16px;
+    padding: 18px 20px;
+  }
+
   .sqm-panel__header {
     display: flex;
     justify-content: space-between;
@@ -2396,6 +2628,10 @@ const styles = `
     font-size: 22px;
   }
 
+  .sqm-panel__header--duplicate {
+    margin-bottom: 14px;
+  }
+
   .sqm-panel__header h2,
   .sqm-section-heading h2,
   .sqm-variants h2 {
@@ -2407,6 +2643,17 @@ const styles = `
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 18px;
+  }
+
+  .sqm-duplicate-grid {
+    align-items: end;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .sqm-duplicate-grid .sqm-button {
+    min-width: 190px;
   }
 
   .sqm-product-status {
@@ -3051,6 +3298,10 @@ const styles = `
     padding: 12px 14px;
   }
 
+  .sqm-errors--compact {
+    margin-top: 12px;
+  }
+
   .sqm-errors p {
     margin: 0;
   }
@@ -3156,6 +3407,10 @@ const styles = `
 
   @media (max-width: 900px) {
     .sqm-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .sqm-duplicate-grid {
       grid-template-columns: 1fr;
     }
 
