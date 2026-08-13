@@ -31,6 +31,8 @@ type ImportResult = {
   ok: boolean;
   mode?: ImportMode;
   categoryLabel?: string;
+  metafieldNamespace?: string;
+  metafieldKey?: string;
   metafieldType?: string;
   metaobjectType?: string;
   totalInputs?: number;
@@ -76,6 +78,8 @@ T-shirt Lavoro UNISEX
 T-shirt Alta Visibilità UNISEX`;
 
 const DEFAULT_CATEGORY = "T-shirt e Maglie";
+const DEFAULT_METAFIELD_NAMESPACE = "custom";
+const DEFAULT_METAFIELD_KEY = "categoria_prodotto";
 
 const METAFIELD_DEFINITION_QUERY = `#graphql
   query CategoriaProdottoDefinition($namespace: String!, $key: String!) {
@@ -230,15 +234,22 @@ function parseBatchUserErrors(errors: Array<{ field?: string[]; message: string 
   return { byIndex, generic };
 }
 
-async function getCategoryTarget(admin: any, categoryLabel: string) {
+async function getCategoryTarget(
+  admin: any,
+  metafieldNamespace: string,
+  metafieldKey: string,
+  categoryLabel: string,
+) {
   const definitionData = await adminGraphql(admin, METAFIELD_DEFINITION_QUERY, {
-    namespace: "custom",
-    key: "categoria_prodotto",
+    namespace: metafieldNamespace,
+    key: metafieldKey,
   });
 
   const definition = definitionData.metafieldDefinitions.nodes[0];
   if (!definition) {
-    throw new Error("Definizione metafield product.custom.categoria_prodotto non trovata.");
+    throw new Error(
+      `Definizione metafield product.${metafieldNamespace}.${metafieldKey} non trovata.`,
+    );
   }
 
   const metafieldType = String(definition.type?.name || "metaobject_reference");
@@ -246,7 +257,7 @@ async function getCategoryTarget(admin: any, categoryLabel: string) {
 
   if (!definitionId) {
     throw new Error(
-      "Non riesco a capire quale definizione metaobject usa custom.categoria_prodotto.",
+      `Non riesco a capire quale definizione metaobject usa product.${metafieldNamespace}.${metafieldKey}.`,
     );
   }
 
@@ -321,6 +332,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const mode: ImportMode = formData.get("mode") === "apply" ? "apply" : "preview";
   const rawProducts = String(formData.get("products") ?? "");
+  const metafieldNamespace =
+    normalizeText(
+      String(formData.get("metafieldNamespace") ?? DEFAULT_METAFIELD_NAMESPACE),
+    ) || DEFAULT_METAFIELD_NAMESPACE;
+  const metafieldKey =
+    normalizeText(String(formData.get("metafieldKey") ?? DEFAULT_METAFIELD_KEY)) ||
+    DEFAULT_METAFIELD_KEY;
   const categoryLabel = normalizeText(String(formData.get("categoryLabel") ?? DEFAULT_CATEGORY));
   const products = parseProductInputs(rawProducts);
 
@@ -340,8 +358,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } satisfies ImportResult;
   }
 
+  if (!metafieldNamespace || !metafieldKey) {
+    return {
+      ok: false,
+      mode,
+      errors: ["Inserisci namespace e key del metafield da usare."],
+    } satisfies ImportResult;
+  }
+
   try {
-    const { metafieldType, metaobjectType, category } = await getCategoryTarget(admin, categoryLabel);
+    const { metafieldType, metaobjectType, category } = await getCategoryTarget(
+      admin,
+      metafieldNamespace,
+      metafieldKey,
+      categoryLabel,
+    );
     const details: ImportDetail[] = [];
     const prepared: Array<{ input: string; product: ProductMatch }> = [];
 
@@ -388,8 +419,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const data = await adminGraphql(admin, METAFIELDS_SET_MUTATION, {
           metafields: batch.map((item) => ({
             ownerId: item.product.id,
-            namespace: "custom",
-            key: "categoria_prodotto",
+            namespace: metafieldNamespace,
+            key: metafieldKey,
             type: metafieldType,
             value: category.id,
           })),
@@ -417,7 +448,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       details.forEach((detail) => {
         if (detail.status === "updated") {
-          detail.message = `Metafield custom.categoria_prodotto aggiornato con ${category.label}.`;
+          detail.message = `Metafield ${metafieldNamespace}.${metafieldKey} aggiornato con ${category.label}.`;
         }
       });
     }
@@ -430,6 +461,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ok: true,
       mode,
       categoryLabel: category.label,
+      metafieldNamespace,
+      metafieldKey,
       metafieldType,
       metaobjectType,
       totalInputs: products.length,
@@ -442,10 +475,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ok: false,
       mode,
       categoryLabel,
+      metafieldNamespace,
+      metafieldKey,
       errors: [
         error instanceof Error
           ? error.message
-          : "Errore durante l aggiornamento di custom.categoria_prodotto.",
+          : "Errore durante l aggiornamento del metafield selezionato.",
       ],
     } satisfies ImportResult;
   }
@@ -470,17 +505,29 @@ export default function CategoriaProdottoImporter() {
       <div className="categoria-importer">
         <section className="categoria-importer__card">
           <p className="categoria-importer__kicker">Metafield batch</p>
-          <h1>Imposta custom.categoria_prodotto su una lista di prodotti</h1>
+          <h1>Imposta una voce esistente su un metafield prodotto a scelta</h1>
           <p>
             Incolla titoli o handle prodotto, uno per riga. La pagina cerca la voce
-            metaobject esistente e poi aggiorna il metafield{" "}
-            <strong>product.custom.categoria_prodotto</strong> usando la sessione
+            metaobject esistente e poi aggiorna il metafield prodotto che scegli tu
+            usando la sessione
             autenticata dell app Shopify.
           </p>
 
           <Form className="categoria-importer__form" method="post">
+            <div className="categoria-importer__field-grid">
+              <label className="categoria-importer__field">
+                <span>Namespace metafield</span>
+                <input defaultValue={DEFAULT_METAFIELD_NAMESPACE} name="metafieldNamespace" required />
+              </label>
+
+              <label className="categoria-importer__field">
+                <span>Key metafield</span>
+                <input defaultValue={DEFAULT_METAFIELD_KEY} name="metafieldKey" required />
+              </label>
+            </div>
+
             <label className="categoria-importer__field categoria-importer__field--wide">
-              <span>Voce categoria esistente</span>
+              <span>Voce esistente da applicare</span>
               <input defaultValue={DEFAULT_CATEGORY} name="categoryLabel" required />
             </label>
 
@@ -525,7 +572,8 @@ export default function CategoriaProdottoImporter() {
                 {actionData.mode === "apply" ? "Aggiornamento completato" : "Anteprima completata"}
               </strong>
               <p>
-                Categoria: <strong>{actionData.categoryLabel}</strong>. Input letti:{" "}
+                Metafield target: <strong>{actionData.metafieldNamespace}.{actionData.metafieldKey}</strong>.
+                Voce: <strong>{actionData.categoryLabel}</strong>. Input letti:{" "}
                 {actionData.totalInputs}.{" "}
                 {actionData.mode === "apply" ? "Aggiornati" : "Pronti"}: {actionData.readyCount}.
                 Da controllare: {actionData.skippedCount}.
@@ -627,6 +675,12 @@ const styles = `
   .categoria-importer__field {
     display: grid;
     gap: 8px;
+  }
+
+  .categoria-importer__field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
   }
 
   .categoria-importer__field input,
@@ -738,6 +792,10 @@ const styles = `
     .categoria-importer {
       grid-template-columns: 1fr;
       padding: 16px;
+    }
+
+    .categoria-importer__field-grid {
+      grid-template-columns: 1fr;
     }
   }
 `;
