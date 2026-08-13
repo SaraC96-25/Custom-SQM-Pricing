@@ -20,6 +20,8 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Home</s-link>
         <s-link href="/app/import-tech-specs">Import tech specs</s-link>
+        <s-link href="/app/uso-importer">Uso Importer</s-link>
+        <s-link href="/app/categoria-prodotto-importer">Categoria prodotto</s-link>
         <s-link href="/app/tag-importer">TAG Importer</s-link>
         <s-link href="/app/vopo-cleaner">VOPO cleaner</s-link>
       </s-app-nav>
