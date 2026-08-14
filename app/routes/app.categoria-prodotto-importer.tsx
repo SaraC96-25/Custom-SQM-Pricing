@@ -234,6 +234,14 @@ function parseBatchUserErrors(errors: Array<{ field?: string[]; message: string 
   return { byIndex, generic };
 }
 
+function buildMetafieldValue(metafieldType: string, metaobjectId: string) {
+  if (normalizeCompare(metafieldType).startsWith("list.")) {
+    return JSON.stringify([metaobjectId]);
+  }
+
+  return metaobjectId;
+}
+
 async function getCategoryTarget(
   admin: any,
   metafieldNamespace: string,
@@ -422,7 +430,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             namespace: metafieldNamespace,
             key: metafieldKey,
             type: metafieldType,
-            value: category.id,
+            value: buildMetafieldValue(metafieldType, category.id),
           })),
         });
 
