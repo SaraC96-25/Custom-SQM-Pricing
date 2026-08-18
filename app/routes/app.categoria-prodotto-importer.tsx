@@ -48,6 +48,15 @@ type ProductMatch = {
   handle: string;
 };
 
+type ProductMetafieldState = {
+  id: string;
+  metafield: {
+    id?: string;
+    type?: string | null;
+    value?: string | null;
+  } | null;
+};
+
 type MetaobjectNode = {
   id: string;
   handle: string;
@@ -134,6 +143,21 @@ const FIND_PRODUCTS_QUERY = `#graphql
   }
 `;
 
+const PRODUCTS_CURRENT_METAFIELD_QUERY = `#graphql
+  query CategoriaProdottoCurrentMetafields($ids: [ID!]!, $namespace: String!, $key: String!) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        metafield(namespace: $namespace, key: $key) {
+          id
+          type
+          value
+        }
+      }
+    }
+  }
+`;
+
 const METAFIELDS_SET_MUTATION = `#graphql
   mutation CategoriaProdottoSetMetafields($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {
@@ -196,6 +220,107 @@ function parseProductInputs(rawText: string) {
   return values;
 }
 
+function parseDelimitedRecords(text: string) {
+  const records: string[][] = [];
+  let delimiter = ",";
+  let current = "";
+  let cells: string[] = [];
+  let quoted = false;
+
+  const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0] ?? "";
+  if (firstLine.includes("\t")) delimiter = "\t";
+  else if (firstLine.includes(";")) delimiter = ";";
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === delimiter && !quoted) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") index += 1;
+      cells.push(current);
+      if (cells.some((cell) => cell.trim())) {
+        records.push(cells.map((cell) => cell.trim()));
+      }
+      cells = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current);
+  if (cells.some((cell) => cell.trim())) {
+    records.push(cells.map((cell) => cell.trim()));
+  }
+
+  if (quoted) {
+    throw new Error("CSV/TSV non valido: virgolette non chiuse.");
+  }
+
+  return records;
+}
+
+function parseProductsFromRecords(records: string[][]) {
+  if (!records.length) {
+    throw new Error("Il file CSV e vuoto.");
+  }
+
+  const headers = records[0].map((value) => normalizeCompare(value));
+  const preferredHeaderIndex = headers.findIndex((header) =>
+    [
+      "handle",
+      "product_handle",
+      "handle prodotto",
+      "titolo prodotto",
+      "title",
+      "product_title",
+      "prodotto",
+      "product",
+      "nome prodotto",
+    ].includes(header),
+  );
+
+  const dataRows = preferredHeaderIndex >= 0 ? records.slice(1) : records;
+  const extracted = dataRows
+    .map((row) => {
+      if (preferredHeaderIndex >= 0) {
+        return normalizeText(row[preferredHeaderIndex] ?? "");
+      }
+      return normalizeText(row.find((cell) => normalizeText(cell)) ?? "");
+    })
+    .filter(Boolean);
+
+  return parseProductInputs(extracted.join("\n"));
+}
+
+async function parseProductsFile(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "csv" || extension === "tsv" || file.type.startsWith("text/")) {
+    const text = await file.text();
+    return parseProductsFromRecords(parseDelimitedRecords(text.replace(/^\uFEFF/, "")));
+  }
+
+  throw new Error("Formato non supportato. Carica un file .csv o .tsv.");
+}
+
 function extractMetaobjectDefinitionId(validations: Array<{ name: string; value: string }> = []) {
   const exactMatch = validations.find((entry) =>
     ["metaobject_definition_id", "metaobject_definition", "definition_id"].includes(
@@ -234,12 +359,35 @@ function parseBatchUserErrors(errors: Array<{ field?: string[]; message: string 
   return { byIndex, generic };
 }
 
-function buildMetafieldValue(metafieldType: string, metaobjectId: string) {
-  if (normalizeCompare(metafieldType).startsWith("list.")) {
-    return JSON.stringify([metaobjectId]);
+function parseMetafieldListValue(rawValue: string | null | undefined) {
+  if (!rawValue) return [];
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+    }
+  } catch {
+    return rawValue.trim() ? [rawValue] : [];
   }
 
-  return metaobjectId;
+  return [];
+}
+
+function mergeMetafieldValue(
+  metafieldType: string,
+  currentValue: string | null | undefined,
+  metaobjectId: string,
+) {
+  if (!normalizeCompare(metafieldType).startsWith("list.")) {
+    return metaobjectId;
+  }
+
+  const merged = parseMetafieldListValue(currentValue);
+  if (!merged.includes(metaobjectId)) {
+    merged.push(metaobjectId);
+  }
+  return JSON.stringify(merged);
 }
 
 async function getCategoryTarget(
@@ -335,11 +483,34 @@ async function findProductsByTitle(admin: any, title: string): Promise<ProductMa
   );
 }
 
+async function getCurrentMetafieldValues(
+  admin: any,
+  productIds: string[],
+  metafieldNamespace: string,
+  metafieldKey: string,
+) {
+  if (!productIds.length) return new Map<string, ProductMetafieldState["metafield"]>();
+
+  const data = await adminGraphql(admin, PRODUCTS_CURRENT_METAFIELD_QUERY, {
+    ids: productIds,
+    namespace: metafieldNamespace,
+    key: metafieldKey,
+  });
+
+  const map = new Map<string, ProductMetafieldState["metafield"]>();
+  for (const node of (data.nodes ?? []) as Array<ProductMetafieldState | null>) {
+    if (!node?.id) continue;
+    map.set(node.id, node.metafield ?? null);
+  }
+  return map;
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const mode: ImportMode = formData.get("mode") === "apply" ? "apply" : "preview";
   const rawProducts = String(formData.get("products") ?? "");
+  const file = formData.get("file");
   const metafieldNamespace =
     normalizeText(
       String(formData.get("metafieldNamespace") ?? DEFAULT_METAFIELD_NAMESPACE),
@@ -348,13 +519,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     normalizeText(String(formData.get("metafieldKey") ?? DEFAULT_METAFIELD_KEY)) ||
     DEFAULT_METAFIELD_KEY;
   const categoryLabel = normalizeText(String(formData.get("categoryLabel") ?? DEFAULT_CATEGORY));
-  const products = parseProductInputs(rawProducts);
+  let products = parseProductInputs(rawProducts);
+
+  if (file instanceof File && file.size > 0) {
+    products = await parseProductsFile(file);
+  }
 
   if (!products.length) {
     return {
       ok: false,
       mode,
-      errors: ["Inserisci almeno un prodotto."],
+      errors: ["Inserisci almeno un prodotto o carica un CSV con handle/titoli."],
     } satisfies ImportResult;
   }
 
@@ -421,6 +596,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
+    const currentMetafields = await getCurrentMetafieldValues(
+      admin,
+      prepared.map((item) => item.product.id),
+      metafieldNamespace,
+      metafieldKey,
+    );
+
+    details.forEach((detail) => {
+      const preparedItem = prepared.find(
+        (item) => normalizeCompare(item.input) === normalizeCompare(detail.input),
+      );
+      if (!preparedItem) return;
+
+      const currentMetafield = currentMetafields.get(preparedItem.product.id);
+      if (normalizeCompare(metafieldType).startsWith("list.")) {
+        const currentIds = parseMetafieldListValue(currentMetafield?.value);
+        detail.message = currentIds.includes(category.id)
+          ? `Gia presente nel metafield ${metafieldNamespace}.${metafieldKey}.`
+          : mode === "apply"
+            ? `Aggiungo ${category.label} al metafield ${metafieldNamespace}.${metafieldKey}.`
+            : `Pronto ad aggiungere ${category.label} al metafield ${metafieldNamespace}.${metafieldKey}.`;
+        return;
+      }
+
+      detail.message =
+        mode === "apply"
+          ? `Imposto ${category.label} su ${metafieldNamespace}.${metafieldKey}.`
+          : `Pronto per ${category.label}.`;
+    });
+
     if (mode === "apply" && prepared.length) {
       for (let index = 0; index < prepared.length; index += 25) {
         const batch = prepared.slice(index, index + 25);
@@ -430,7 +635,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             namespace: metafieldNamespace,
             key: metafieldKey,
             type: metafieldType,
-            value: buildMetafieldValue(metafieldType, category.id),
+            value: mergeMetafieldValue(
+              metafieldType,
+              currentMetafields.get(item.product.id)?.value,
+              category.id,
+            ),
           })),
         });
 
@@ -456,7 +665,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       details.forEach((detail) => {
         if (detail.status === "updated") {
-          detail.message = `Metafield ${metafieldNamespace}.${metafieldKey} aggiornato con ${category.label}.`;
+          const preparedItem = prepared.find(
+            (item) => normalizeCompare(item.input) === normalizeCompare(detail.input),
+          );
+          const currentMetafield = preparedItem ? currentMetafields.get(preparedItem.product.id) : null;
+          if (normalizeCompare(metafieldType).startsWith("list.")) {
+            const currentIds = parseMetafieldListValue(currentMetafield?.value);
+            detail.message = currentIds.includes(category.id)
+              ? `Metafield ${metafieldNamespace}.${metafieldKey} gia conteneva ${category.label}.`
+              : `Metafield ${metafieldNamespace}.${metafieldKey}: aggiunto ${category.label} senza rimuovere i valori esistenti.`;
+          } else {
+            detail.message = `Metafield ${metafieldNamespace}.${metafieldKey} aggiornato con ${category.label}.`;
+          }
         }
       });
     }
@@ -521,7 +741,7 @@ export default function CategoriaProdottoImporter() {
             autenticata dell app Shopify.
           </p>
 
-          <Form className="categoria-importer__form" method="post">
+          <Form className="categoria-importer__form" method="post" encType="multipart/form-data">
             <div className="categoria-importer__field-grid">
               <label className="categoria-importer__field">
                 <span>Namespace metafield</span>
@@ -540,8 +760,13 @@ export default function CategoriaProdottoImporter() {
             </label>
 
             <label className="categoria-importer__field categoria-importer__field--wide">
+              <span>File CSV o TSV opzionale</span>
+              <input accept=".csv,.tsv,text/csv,text/tab-separated-values" name="file" type="file" />
+            </label>
+
+            <label className="categoria-importer__field categoria-importer__field--wide">
               <span>Prodotti</span>
-              <textarea defaultValue={DEFAULT_PRODUCTS} name="products" rows={16} required />
+              <textarea defaultValue={DEFAULT_PRODUCTS} name="products" rows={16} />
             </label>
 
             <div className="categoria-importer__actions">
