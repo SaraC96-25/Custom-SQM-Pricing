@@ -98,8 +98,8 @@ const FIND_COLLECTIONS_QUERY = `#graphql
 `;
 
 const COLLECTION_UPDATE_MUTATION = `#graphql
-  mutation CollectionSeoImporterUpdate($collection: CollectionUpdateInput!) {
-    collectionUpdate(collection: $collection) {
+  mutation CollectionSeoImporterUpdate($input: CollectionInput!) {
+    collectionUpdate(input: $input) {
       collection {
         id
         title
@@ -312,7 +312,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (mode === "apply") {
       for (const item of prepared) {
         const data = await adminGraphql(admin, COLLECTION_UPDATE_MUTATION, {
-          collection: {
+          input: {
             id: item.collection.id,
             seo: {
               title: item.pageTitle,
