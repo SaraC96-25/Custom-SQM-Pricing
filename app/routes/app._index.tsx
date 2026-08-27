@@ -62,6 +62,10 @@ type ProductSummary = {
   minimumAreaM2: number;
   minWidthCm: number;
   minHeightCm: number;
+  defaultWidthCm: number;
+  defaultHeightCm: number;
+  maxWidthCm: number;
+  maxHeightCm: number;
   ranges: DiscountRange[];
   promoConfig: PromoFormatConfig;
   productConfig: SqmProductConfig;
@@ -99,6 +103,8 @@ const EMPTY_RANGE: DiscountRange = {
   discount_percent: 0,
   label: "",
 };
+
+const DEFAULT_SQM_DIMENSION_CM = 100;
 
 const EMPTY_PROMO_PRICE_RANGE: PromoPriceRange = {
   minM2: 0,
@@ -229,6 +235,18 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           minHeightMetafield: metafield(namespace: "custom", key: "sqm_min_height_cm") {
+            value
+          }
+          defaultWidthMetafield: metafield(namespace: "custom", key: "sqm_default_width_cm") {
+            value
+          }
+          defaultHeightMetafield: metafield(namespace: "custom", key: "sqm_default_height_cm") {
+            value
+          }
+          maxWidthMetafield: metafield(namespace: "custom", key: "sqm_max_width_cm") {
+            value
+          }
+          maxHeightMetafield: metafield(namespace: "custom", key: "sqm_max_height_cm") {
             value
           }
           rangesMetafield: metafield(namespace: "custom", key: "sqm_discount_ranges") {
@@ -452,6 +470,16 @@ function mapProduct(product: any): ProductSummary {
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
     minWidthCm: Math.max(0, toNumber(product.minWidthMetafield?.value) ?? 1),
     minHeightCm: Math.max(0, toNumber(product.minHeightMetafield?.value) ?? 1),
+    defaultWidthCm: Math.max(
+      0,
+      toNumber(product.defaultWidthMetafield?.value) ?? DEFAULT_SQM_DIMENSION_CM,
+    ),
+    defaultHeightCm: Math.max(
+      0,
+      toNumber(product.defaultHeightMetafield?.value) ?? DEFAULT_SQM_DIMENSION_CM,
+    ),
+    maxWidthCm: Math.max(0, toNumber(product.maxWidthMetafield?.value) ?? 0),
+    maxHeightCm: Math.max(0, toNumber(product.maxHeightMetafield?.value) ?? 0),
     ranges: normalizeRanges(product.rangesMetafield?.value),
     promoConfig: parsePromoConfig(product.promoFormatsMetafield?.value),
     productConfig: normalizeProductConfig(product.productConfigMetafield?.value),
@@ -587,6 +615,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       0,
       toNumber(String(formData.get("sourceMinHeightCm") ?? "1")) ?? 1,
     );
+    const defaultWidthCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceDefaultWidthCm") ?? DEFAULT_SQM_DIMENSION_CM)) ??
+        DEFAULT_SQM_DIMENSION_CM,
+    );
+    const defaultHeightCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceDefaultHeightCm") ?? DEFAULT_SQM_DIMENSION_CM)) ??
+        DEFAULT_SQM_DIMENSION_CM,
+    );
+    const maxWidthCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceMaxWidthCm") ?? "0")) ?? 0,
+    );
+    const maxHeightCm = Math.max(
+      0,
+      toNumber(String(formData.get("sourceMaxHeightCm") ?? "0")) ?? 0,
+    );
     const ranges = normalizeRanges(String(formData.get("sourceRanges") ?? "[]"));
     const promoConfig = normalizePromoConfig(
       parsePromoConfig(String(formData.get("sourcePromoConfig") ?? "{}")),
@@ -641,6 +687,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             key: "sqm_min_height_cm",
             type: "number_decimal",
             value: minHeightCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_default_width_cm",
+            type: "number_decimal",
+            value: defaultWidthCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_default_height_cm",
+            type: "number_decimal",
+            value: defaultHeightCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_max_width_cm",
+            type: "number_decimal",
+            value: maxWidthCm.toFixed(1),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_max_height_cm",
+            type: "number_decimal",
+            value: maxHeightCm.toFixed(1),
           },
           {
             ownerId: targetProductId,
@@ -705,6 +779,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     0,
     toNumber(String(formData.get("minHeightCm") ?? "1")) ?? 1,
   );
+  const defaultWidthCm = Math.max(
+    0,
+    toNumber(String(formData.get("defaultWidthCm") ?? DEFAULT_SQM_DIMENSION_CM)) ??
+      DEFAULT_SQM_DIMENSION_CM,
+  );
+  const defaultHeightCm = Math.max(
+    0,
+    toNumber(String(formData.get("defaultHeightCm") ?? DEFAULT_SQM_DIMENSION_CM)) ??
+      DEFAULT_SQM_DIMENSION_CM,
+  );
+  const maxWidthCm = Math.max(
+    0,
+    toNumber(String(formData.get("maxWidthCm") ?? "0")) ?? 0,
+  );
+  const maxHeightCm = Math.max(
+    0,
+    toNumber(String(formData.get("maxHeightCm") ?? "0")) ?? 0,
+  );
   const ranges = normalizeRanges(String(formData.get("ranges") ?? "[]"));
   const promoConfig = normalizePromoConfig(
     parsePromoConfig(String(formData.get("promoConfig") ?? "{}")),
@@ -717,6 +809,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!productId) {
     errors.push("Seleziona un prodotto prima di salvare.");
+  }
+  if (maxWidthCm > 0 && defaultWidthCm > maxWidthCm) {
+    errors.push("La base di default non puo superare la base massima stampabile.");
+  }
+  if (maxHeightCm > 0 && defaultHeightCm > maxHeightCm) {
+    errors.push("L altezza di default non puo superare l altezza massima stampabile.");
+  }
+  if (maxWidthCm > 0 && minWidthCm > maxWidthCm) {
+    errors.push("La base minima non puo superare la base massima stampabile.");
+  }
+  if (maxHeightCm > 0 && minHeightCm > maxHeightCm) {
+    errors.push("L altezza minima non puo superare l altezza massima stampabile.");
   }
 
   if (errors.length) {
@@ -753,6 +857,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_min_height_cm",
           type: "number_decimal",
           value: minHeightCm.toFixed(1),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_default_width_cm",
+          type: "number_decimal",
+          value: defaultWidthCm.toFixed(1),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_default_height_cm",
+          type: "number_decimal",
+          value: defaultHeightCm.toFixed(1),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_max_width_cm",
+          type: "number_decimal",
+          value: maxWidthCm.toFixed(1),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_max_height_cm",
+          type: "number_decimal",
+          value: maxHeightCm.toFixed(1),
         },
         {
           ownerId: productId,
@@ -815,6 +947,14 @@ export default function Index() {
   );
   const [minWidthCm, setMinWidthCm] = useState(selectedProduct?.minWidthCm ?? 1);
   const [minHeightCm, setMinHeightCm] = useState(selectedProduct?.minHeightCm ?? 1);
+  const [defaultWidthCm, setDefaultWidthCm] = useState(
+    selectedProduct?.defaultWidthCm ?? DEFAULT_SQM_DIMENSION_CM,
+  );
+  const [defaultHeightCm, setDefaultHeightCm] = useState(
+    selectedProduct?.defaultHeightCm ?? DEFAULT_SQM_DIMENSION_CM,
+  );
+  const [maxWidthCm, setMaxWidthCm] = useState(selectedProduct?.maxWidthCm ?? 0);
+  const [maxHeightCm, setMaxHeightCm] = useState(selectedProduct?.maxHeightCm ?? 0);
   const [ranges, setRanges] = useState<DiscountRange[]>(
     selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
   );
@@ -856,11 +996,40 @@ export default function Index() {
     () => validateProductConfig(productConfigJson),
     [productConfigJson],
   );
+  const dimensionErrors = useMemo(() => {
+    const errors: string[] = [];
+
+    if (maxWidthCm > 0 && defaultWidthCm > maxWidthCm) {
+      errors.push("La base di default non puo superare la base massima stampabile.");
+    }
+    if (maxHeightCm > 0 && defaultHeightCm > maxHeightCm) {
+      errors.push("L altezza di default non puo superare l altezza massima stampabile.");
+    }
+    if (maxWidthCm > 0 && minWidthCm > maxWidthCm) {
+      errors.push("La base minima non puo superare la base massima stampabile.");
+    }
+    if (maxHeightCm > 0 && minHeightCm > maxHeightCm) {
+      errors.push("L altezza minima non puo superare l altezza massima stampabile.");
+    }
+
+    return errors;
+  }, [
+    defaultHeightCm,
+    defaultWidthCm,
+    maxHeightCm,
+    maxWidthCm,
+    minHeightCm,
+    minWidthCm,
+  ]);
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
     setMinWidthCm(selectedProduct?.minWidthCm ?? 1);
     setMinHeightCm(selectedProduct?.minHeightCm ?? 1);
+    setDefaultWidthCm(selectedProduct?.defaultWidthCm ?? DEFAULT_SQM_DIMENSION_CM);
+    setDefaultHeightCm(selectedProduct?.defaultHeightCm ?? DEFAULT_SQM_DIMENSION_CM);
+    setMaxWidthCm(selectedProduct?.maxWidthCm ?? 0);
+    setMaxHeightCm(selectedProduct?.maxHeightCm ?? 0);
     setRanges(
       selectedProduct?.ranges.length ? selectedProduct.ranges : [{ ...EMPTY_RANGE }],
     );
@@ -1416,6 +1585,26 @@ export default function Index() {
                   value={String(selectedProduct.minHeightCm)}
                 />
                 <input
+                  name="sourceDefaultWidthCm"
+                  type="hidden"
+                  value={String(selectedProduct.defaultWidthCm)}
+                />
+                <input
+                  name="sourceDefaultHeightCm"
+                  type="hidden"
+                  value={String(selectedProduct.defaultHeightCm)}
+                />
+                <input
+                  name="sourceMaxWidthCm"
+                  type="hidden"
+                  value={String(selectedProduct.maxWidthCm)}
+                />
+                <input
+                  name="sourceMaxHeightCm"
+                  type="hidden"
+                  value={String(selectedProduct.maxHeightCm)}
+                />
+                <input
                   name="sourceRanges"
                   type="hidden"
                   value={JSON.stringify(selectedProduct.ranges)}
@@ -1489,6 +1678,14 @@ export default function Index() {
                 />
                 <input name="minWidthCm" type="hidden" value={String(minWidthCm)} />
                 <input name="minHeightCm" type="hidden" value={String(minHeightCm)} />
+                <input name="defaultWidthCm" type="hidden" value={String(defaultWidthCm)} />
+                <input
+                  name="defaultHeightCm"
+                  type="hidden"
+                  value={String(defaultHeightCm)}
+                />
+                <input name="maxWidthCm" type="hidden" value={String(maxWidthCm)} />
+                <input name="maxHeightCm" type="hidden" value={String(maxHeightCm)} />
                 <input
                   name="ranges"
                   type="hidden"
@@ -2328,6 +2525,103 @@ export default function Index() {
                       </label>
                     </div>
 
+                    <div className="sqm-section-heading sqm-section-heading--spaced">
+                      <div>
+                        <h2>Dimensioni front end</h2>
+                        <p>
+                          Imposta le dimensioni iniziali mostrate nel calcolatore
+                          e i limiti massimi stampabili del prodotto. Lascia i
+                          massimi a 0 per non applicare un limite.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-dimensions-box">
+                      <label className="sqm-field">
+                        <span>Base default (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setDefaultWidthCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder={String(DEFAULT_SQM_DIMENSION_CM)}
+                          step="0.1"
+                          type="number"
+                          value={defaultWidthCm}
+                        />
+                      </label>
+
+                      <label className="sqm-field">
+                        <span>Altezza default (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setDefaultHeightCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder={String(DEFAULT_SQM_DIMENSION_CM)}
+                          step="0.1"
+                          type="number"
+                          value={defaultHeightCm}
+                        />
+                      </label>
+
+                      <label className="sqm-field">
+                        <span>Base massima (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setMaxWidthCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="0"
+                          step="0.1"
+                          type="number"
+                          value={maxWidthCm}
+                        />
+                      </label>
+
+                      <label className="sqm-field">
+                        <span>Altezza massima (cm)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setMaxHeightCm(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="0"
+                          step="0.1"
+                          type="number"
+                          value={maxHeightCm}
+                        />
+                      </label>
+                    </div>
+
+                    {dimensionErrors.length ? (
+                      <div className="sqm-errors">
+                        {dimensionErrors.map((error) => (
+                          <p key={error}>{error}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Range metri quadrati</h2>
@@ -2525,6 +2819,7 @@ export default function Index() {
                       isSaving ||
                       Boolean(rangeErrors.length) ||
                       Boolean(promoErrors.length) ||
+                      Boolean(dimensionErrors.length) ||
                       Boolean(productConfigErrors.length) ||
                       Boolean(productConfigJsonErrors.length)
                     }
@@ -2641,6 +2936,13 @@ const styles = `
   .sqm-minimum-box {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .sqm-dimensions-box {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 18px;
   }
@@ -3403,6 +3705,10 @@ const styles = `
     .sqm-minimum-box {
       grid-template-columns: 1fr;
     }
+
+    .sqm-dimensions-box {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 900px) {
@@ -3445,6 +3751,10 @@ const styles = `
   }
 
   @media (max-width: 620px) {
+    .sqm-dimensions-box {
+      grid-template-columns: 1fr;
+    }
+
     .sqm-range-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
