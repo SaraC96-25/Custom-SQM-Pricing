@@ -1,0 +1,11 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "Riepilogo file di stampa"
+handle = "order-print-summary"
+uid = "9bb02448-a021-42ad-6136-daaad4aebe28478d6f18"
+type = "ui_extension"
+
+[[extensions.targeting]]
+module = "./src/BlockExtension.jsx"
+target = "admin.order-details.block.render"
