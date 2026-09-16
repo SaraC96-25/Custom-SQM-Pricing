@@ -95,3 +95,51 @@ test('parses a structured custom product title from a manual order', () => {
     ]),
   });
 });
+
+test('supports manual products with no details or named optional details', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {
+          id: 'custom-line-1',
+          title: 'GEN01 - Prodotto generico - 3',
+          quantity: 1,
+          customAttributes: [],
+        },
+        {
+          id: 'custom-line-2',
+          title: 'GL3000 - T-shirt unisex - 6 - Colore: nero',
+          quantity: 1,
+          customAttributes: [],
+        },
+        {
+          id: 'custom-line-3',
+          title: 'BANNER01 - Banner - 2 - Lavorazioni e rifiniture: Rinforzo ed Occhielli',
+          quantity: 1,
+          customAttributes: [],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(summary.products.map((product) => ({
+    title: product.title,
+    quantity: product.quantity,
+    sku: product.sku,
+    properties: product.properties.map(({label, value}) => ({label, value})),
+  })), [
+    {title: 'Prodotto generico', quantity: '3', sku: 'GEN01', properties: []},
+    {
+      title: 'T-shirt unisex',
+      quantity: '6',
+      sku: 'GL3000',
+      properties: [{label: 'Colore', value: 'nero'}],
+    },
+    {
+      title: 'Banner',
+      quantity: '2',
+      sku: 'BANNER01',
+      properties: [{label: 'Lavorazioni e rifiniture', value: 'Rinforzo ed Occhielli'}],
+    },
+  ]);
+});

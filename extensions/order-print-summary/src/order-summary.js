@@ -70,19 +70,44 @@ function quantityFromVariantTitle(variantTitle) {
 
 function parseManualProductTitle(value) {
   const parts = String(value || '').split(/\s+-\s+/).map((part) => part.trim());
-  if (parts.length !== 6 || !/^\d+$/.test(parts[2]) || parts.some((part) => !part)) {
+  if (parts.length < 3 || !/^\d+$/.test(parts[2]) || parts.some((part) => !part)) {
     return null;
   }
 
-  const [sku, title, quantity, color, printPosition, rawSizes] = parts;
-  const sizes = rawSizes
+  const [sku, title, quantity, ...details] = parts;
+  let properties = [];
+
+  // Keep supporting the original six-position apparel format.
+  if (details.length === 3 && !details[0].includes(':') && !details[1].includes(':')) {
+    const [color, printPosition, rawSizes] = details;
+    properties = [
+      {key: 'Colore', value: color},
+      {key: 'Posizione stampa', value: printPosition},
+      {key: 'Taglie', value: cleanSizes(rawSizes)},
+    ];
+  } else {
+    properties = details.map((detail) => {
+      const separator = detail.indexOf(':');
+      if (separator < 1 || separator === detail.length - 1) return null;
+
+      const key = detail.slice(0, separator).trim();
+      const rawValue = detail.slice(separator + 1).trim();
+      const value = /^tagli[ae]$/i.test(key) ? cleanSizes(rawValue) : rawValue;
+      return {key, value};
+    });
+    if (properties.some((property) => !property)) return null;
+  }
+
+  return {sku, title, quantity, properties};
+}
+
+function cleanSizes(value) {
+  return String(value || '')
     .replace(/;+$/, '')
     .split(';')
     .map((size) => size.trim())
     .filter(Boolean)
     .join('; ');
-
-  return {sku, title, quantity, color, printPosition, sizes};
 }
 
 export function buildOrderSummary(order) {
@@ -100,9 +125,9 @@ export function buildOrderSummary(order) {
     };
 
     if (manualProduct) {
-      appendProperty(product, {key: 'Colore', value: manualProduct.color}, product.title);
-      appendProperty(product, {key: 'Posizione stampa', value: manualProduct.printPosition}, product.title);
-      appendProperty(product, {key: 'Taglie', value: manualProduct.sizes}, product.title);
+      manualProduct.properties.forEach((property) => {
+        appendProperty(product, property, product.title);
+      });
     }
 
     return product;
@@ -139,7 +164,10 @@ export function buildOrderSummary(order) {
 
   return {
     orderName: order?.name || 'Ordine',
-    products: products.filter((product) => product.properties.length > 0),
+    products: products.filter((product, index) => {
+      const line = lines[index];
+      return product.properties.length > 0 || Boolean(parseManualProductTitle(line?.title || line?.name));
+    }),
     general: general.properties,
   };
 }
