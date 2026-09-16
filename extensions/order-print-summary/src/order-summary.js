@@ -63,12 +63,17 @@ function appendProperty(target, attribute, productTitle) {
   });
 }
 
+function quantityFromVariantTitle(variantTitle) {
+  const match = String(variantTitle || '').match(/^\s*(\d+)\s*\//);
+  return match ? match[1] : null;
+}
+
 export function buildOrderSummary(order) {
   const lines = order?.lineItems?.nodes || [];
   const products = lines.map((line) => ({
     id: line.id,
     title: line.title || line.name || 'Prodotto',
-    quantity: line.quantity || 1,
+    quantity: quantityFromVariantTitle(line.variantTitle) || line.quantity || 1,
     sku: line.sku || '',
     groupId: line.lineItemGroup?.id || '',
     properties: [],

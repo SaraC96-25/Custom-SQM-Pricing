@@ -20,8 +20,8 @@ test('separates bundle properties and keeps file URLs clickable', () => {
     name: '#1001',
     lineItems: {
       nodes: [
-        {id: 'line-1', title: 'T-shirt Economy UNISEX', quantity: 5, sku: 'GL3000', customAttributes: [], lineItemGroup: group},
-        {id: 'line-2', title: 'Gilet UNISEX', quantity: 5, sku: 'GILET', customAttributes: [], lineItemGroup: group},
+        {id: 'line-1', title: 'T-shirt Economy UNISEX', variantTitle: '10 / Lato Cuore + Retro', quantity: 1, sku: 'GL3000', customAttributes: [], lineItemGroup: group},
+        {id: 'line-2', title: 'Gilet UNISEX', variantTitle: '10 / Fronte', quantity: 1, sku: 'GILET', customAttributes: [], lineItemGroup: group},
       ],
     },
   };
@@ -44,6 +44,22 @@ test('separates bundle properties and keeps file URLs clickable', () => {
     'Colore',
     'File Lato Cuore 1',
   ]);
-  assert.equal(gilet.quantity, 5);
+  assert.equal(gilet.quantity, '10');
   assert.deepEqual(summary.general.map((property) => property.label), ['Modalità invio file']);
+});
+
+test('uses Shopify line quantity when the variant title has no quantity prefix', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [{
+        id: 'line-1',
+        title: 'Prodotto semplice',
+        variantTitle: 'Default Title',
+        quantity: 3,
+        customAttributes: [{key: 'Colore', value: 'Nero'}],
+      }],
+    },
+  });
+
+  assert.equal(summary.products[0].quantity, 3);
 });

@@ -12,6 +12,7 @@ const ORDER_QUERY = `#graphql
           title
           name
           quantity
+          variantTitle
           sku
           customAttributes {
             key
