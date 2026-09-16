@@ -63,3 +63,35 @@ test('uses Shopify line quantity when the variant title has no quantity prefix',
 
   assert.equal(summary.products[0].quantity, 3);
 });
+
+test('parses a structured custom product title from a manual order', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [{
+        id: 'custom-line-1',
+        title: 'GL3000 - t-shirt unisex - 6 - nero - lato cuore - XL:2;M:1;S:3;',
+        quantity: 1,
+        customAttributes: [],
+      }],
+    },
+  });
+
+  assert.equal(summary.products.length, 1);
+  assert.deepEqual(summary.products[0], {
+    id: 'custom-line-1',
+    title: 't-shirt unisex',
+    quantity: '6',
+    sku: 'GL3000',
+    groupId: '',
+    properties: [
+      {key: 'Colore', label: 'Colore', value: 'nero', isFile: false},
+      {key: 'Posizione stampa', label: 'Posizione stampa', value: 'lato cuore', isFile: false},
+      {key: 'Taglie', label: 'Taglie', value: 'XL:2; M:1; S:3', isFile: false},
+    ],
+    signatures: new Set([
+      'Colore::nero',
+      'Posizione stampa::lato cuore',
+      'Taglie::XL:2; M:1; S:3',
+    ]),
+  });
+});

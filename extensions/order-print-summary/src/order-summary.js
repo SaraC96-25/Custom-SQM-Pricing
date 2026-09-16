@@ -68,17 +68,45 @@ function quantityFromVariantTitle(variantTitle) {
   return match ? match[1] : null;
 }
 
+function parseManualProductTitle(value) {
+  const parts = String(value || '').split(/\s+-\s+/).map((part) => part.trim());
+  if (parts.length !== 6 || !/^\d+$/.test(parts[2]) || parts.some((part) => !part)) {
+    return null;
+  }
+
+  const [sku, title, quantity, color, printPosition, rawSizes] = parts;
+  const sizes = rawSizes
+    .replace(/;+$/, '')
+    .split(';')
+    .map((size) => size.trim())
+    .filter(Boolean)
+    .join('; ');
+
+  return {sku, title, quantity, color, printPosition, sizes};
+}
+
 export function buildOrderSummary(order) {
   const lines = order?.lineItems?.nodes || [];
-  const products = lines.map((line) => ({
-    id: line.id,
-    title: line.title || line.name || 'Prodotto',
-    quantity: quantityFromVariantTitle(line.variantTitle) || line.quantity || 1,
-    sku: line.sku || '',
-    groupId: line.lineItemGroup?.id || '',
-    properties: [],
-    signatures: new Set(),
-  }));
+  const products = lines.map((line) => {
+    const manualProduct = parseManualProductTitle(line.title || line.name);
+    const product = {
+      id: line.id,
+      title: manualProduct?.title || line.title || line.name || 'Prodotto',
+      quantity: manualProduct?.quantity || quantityFromVariantTitle(line.variantTitle) || line.quantity || 1,
+      sku: manualProduct?.sku || line.sku || '',
+      groupId: line.lineItemGroup?.id || '',
+      properties: [],
+      signatures: new Set(),
+    };
+
+    if (manualProduct) {
+      appendProperty(product, {key: 'Colore', value: manualProduct.color}, product.title);
+      appendProperty(product, {key: 'Posizione stampa', value: manualProduct.printPosition}, product.title);
+      appendProperty(product, {key: 'Taglie', value: manualProduct.sizes}, product.title);
+    }
+
+    return product;
+  });
   const general = {properties: [], signatures: new Set()};
 
   lines.forEach((line, index) => {
