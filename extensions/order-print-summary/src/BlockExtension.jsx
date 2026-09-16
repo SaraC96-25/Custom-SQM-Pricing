@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import {render} from 'preact';
 import {buildOrderSummary} from './order-summary.js';
 
