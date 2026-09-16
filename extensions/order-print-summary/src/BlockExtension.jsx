@@ -60,7 +60,7 @@ export default async () => {
 
 function PropertyRow({property}) {
   return (
-    <s-stack direction="inline" gap="small" alignItems="center" wrap>
+    <s-stack direction="inline" gap="small-500" alignItems="center" wrap>
       <s-text type="strong">{property.label}:</s-text>
       {property.isFile ? (
         <s-link href={property.value} target="_blank">Apri file</s-link>
@@ -73,16 +73,24 @@ function PropertyRow({property}) {
 
 function ProductCard({product}) {
   return (
-    <s-box padding="base" background="subdued" borderRadius="base">
-      <s-stack direction="block" gap="small">
-        <s-stack direction="inline" gap="small" alignItems="center" wrap>
+    <s-box padding="small" background="subdued" borderRadius="base">
+      <s-stack direction="block" gap="small-500">
+        <s-stack direction="inline" gap="small-300" alignItems="center" wrap>
           <s-heading>{product.title}</s-heading>
           <s-badge tone="info">Quantità {product.quantity}</s-badge>
         </s-stack>
-        {product.sku ? <s-text color="subdued">SKU: {product.sku}</s-text> : null}
-        {product.properties.map((property) => (
-          <PropertyRow key={`${property.key}-${property.value}`} property={property} />
-        ))}
+        <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small-500 small-200">
+          {product.sku ? (
+            <s-grid-item>
+              <PropertyRow property={{label: 'SKU', value: product.sku, isFile: false}} />
+            </s-grid-item>
+          ) : null}
+          {product.properties.map((property) => (
+            <s-grid-item key={`${property.key}-${property.value}`}>
+              <PropertyRow property={property} />
+            </s-grid-item>
+          ))}
+        </s-grid>
       </s-stack>
     </s-box>
   );
@@ -99,7 +107,7 @@ function Extension({summary}) {
       heading="Riepilogo produzione e file"
       collapsedSummary={`${summary.products.length} prodotti · ${fileCount} file`}
     >
-      <s-stack direction="block" gap="base">
+      <s-stack direction="block" gap="small-300">
         {summary.products.length ? summary.products.map((product) => (
           <ProductCard key={product.id} product={product} />
         )) : (
@@ -108,7 +116,7 @@ function Extension({summary}) {
         {summary.general.length ? (
           <>
             <s-divider />
-            <s-stack direction="block" gap="small">
+            <s-stack direction="block" gap="small-500">
               <s-heading>Informazioni generali del bundle</s-heading>
               {summary.general.map((property) => (
                 <PropertyRow key={`${property.key}-${property.value}`} property={property} />
