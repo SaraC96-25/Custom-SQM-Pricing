@@ -97,6 +97,13 @@ export function buildOrderSummary(order) {
     });
   });
 
+  products.forEach((product) => {
+    const variantQuantity = product.properties.find((property) => {
+      return normalize(property.label) === 'quantita';
+    });
+    if (variantQuantity) product.quantity = variantQuantity.value;
+  });
+
   return {
     orderName: order?.name || 'Ordine',
     products: products.filter((product) => product.properties.length > 0),

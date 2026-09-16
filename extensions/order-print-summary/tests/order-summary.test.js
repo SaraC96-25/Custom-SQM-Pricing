@@ -6,6 +6,7 @@ test('separates bundle properties and keeps file URLs clickable', () => {
   const sharedAttributes = [
     {key: 'T-shirt Economy UNISEX · Posizione stampa', value: 'Lato Cuore + Retro'},
     {key: 'T-shirt Economy UNISEX · Colore', value: 'Royal'},
+    {key: 'T-shirt Economy UNISEX · Quantità', value: '4'},
     {key: 'T-shirt Economy UNISEX · Taglia', value: 'S:1, M:1, XL:2'},
     {key: 'Gilet UNISEX · Posizione stampa', value: 'Lato Cuore'},
     {key: 'Gilet UNISEX · Colore', value: 'Nero'},
@@ -32,14 +33,17 @@ test('separates bundle properties and keeps file URLs clickable', () => {
   assert.deepEqual(tshirt.properties.map((property) => property.label), [
     'Posizione stampa',
     'Colore',
+    'Quantità',
     'Taglia',
     'File Lato Cuore 1',
   ]);
+  assert.equal(tshirt.quantity, '4');
   assert.equal(tshirt.properties.at(-1).isFile, true);
   assert.deepEqual(gilet.properties.map((property) => property.label), [
     'Posizione stampa',
     'Colore',
     'File Lato Cuore 1',
   ]);
+  assert.equal(gilet.quantity, 5);
   assert.deepEqual(summary.general.map((property) => property.label), ['Modalità invio file']);
 });
