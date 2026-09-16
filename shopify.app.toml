@@ -29,6 +29,12 @@ use_legacy_install_flow = false
 embedded_app_direct_api_access = true
 direct_api_mode = "online"
 
+[product.metafields.app.preview_enabled]
+name = "Anteprima di stampa attiva"
+description = "Indica se il prodotto ha l'anteprima di stampa abilitata dall'app."
+type = "boolean"
+access.admin = "merchant_read_write"
+
 [auth]
 redirect_urls = [
   "https://custom-sqm-pricing-wowstampa.onrender.com/auth/callback",
