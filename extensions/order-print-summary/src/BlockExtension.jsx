@@ -1,11 +1,84 @@
 /** @jsxImportSource preact */
 import {render} from 'preact';
-import {buildOrderSummary} from './order-summary.js';
+import {
+  buildOrderExport,
+  buildOrderSummary,
+  serializeOrderExport,
+} from './order-summary.js';
 
 const ORDER_QUERY = `#graphql
   query OrderPrintSummary($id: ID!) {
     order(id: $id) {
+      id
       name
+      createdAt
+      updatedAt
+      email
+      phone
+      note
+      tags
+      currencyCode
+      displayFinancialStatus
+      displayFulfillmentStatus
+      subtotalPriceSet {
+        shopMoney { amount currencyCode }
+      }
+      totalShippingPriceSet {
+        shopMoney { amount currencyCode }
+      }
+      totalTaxSet {
+        shopMoney { amount currencyCode }
+      }
+      totalDiscountsSet {
+        shopMoney { amount currencyCode }
+      }
+      totalPriceSet {
+        shopMoney { amount currencyCode }
+      }
+      customer {
+        id
+        displayName
+        email
+        phone
+      }
+      billingAddress {
+        firstName
+        lastName
+        company
+        address1
+        address2
+        city
+        province
+        provinceCode
+        zip
+        country
+        countryCodeV2
+        phone
+      }
+      shippingAddress {
+        firstName
+        lastName
+        company
+        address1
+        address2
+        city
+        province
+        provinceCode
+        zip
+        country
+        countryCodeV2
+        phone
+      }
+      shippingLines(first: 50) {
+        nodes {
+          title
+          code
+          source
+          originalPriceSet {
+            shopMoney { amount currencyCode }
+          }
+        }
+      }
       lineItems(first: 250) {
         nodes {
           id
@@ -46,7 +119,14 @@ export default async () => {
     if (result.errors?.length) throw new Error(result.errors[0].message);
     if (!result.data?.order) throw new Error('Ordine non trovato.');
 
-    render(<Extension summary={buildOrderSummary(result.data.order)} />, document.body);
+    const order = result.data.order;
+    render(
+      <Extension
+        order={order}
+        summary={buildOrderSummary(order)}
+      />,
+      document.body,
+    );
   } catch (loadError) {
     render(
       <s-admin-block heading="Riepilogo produzione e file">
@@ -97,11 +177,26 @@ function ProductCard({product}) {
   );
 }
 
-function Extension({summary}) {
+function downloadData(order, format) {
+  const content = serializeOrderExport(buildOrderExport(order), format);
+  const mimeType = format === 'xml' ? 'application/xml' : 'application/json';
+  const orderName = String(order?.name || 'ordine')
+    .replace(/^#/, '')
+    .replace(/[^A-Za-z0-9_-]+/g, '-');
+
+  return {
+    filename: `${orderName}-riepilogo.${format}`,
+    href: `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`,
+  };
+}
+
+function Extension({order, summary}) {
   const fileCount = summary.products.reduce(
     (total, product) => total + product.properties.filter((property) => property.isFile).length,
     0,
   );
+  const jsonDownload = downloadData(order, 'json');
+  const xmlDownload = downloadData(order, 'xml');
 
   return (
     <s-admin-block
@@ -125,6 +220,23 @@ function Extension({summary}) {
             </s-stack>
           </>
         ) : null}
+        <s-divider />
+        <s-stack direction="inline" gap="small-300" wrap>
+          <s-button
+            href={jsonDownload.href}
+            download={jsonDownload.filename}
+            variant="secondary"
+          >
+            Scarica JSON
+          </s-button>
+          <s-button
+            href={xmlDownload.href}
+            download={xmlDownload.filename}
+            variant="secondary"
+          >
+            Scarica XML
+          </s-button>
+        </s-stack>
       </s-stack>
     </s-admin-block>
   );

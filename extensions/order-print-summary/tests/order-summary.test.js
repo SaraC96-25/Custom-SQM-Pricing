@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildOrderSummary} from '../src/order-summary.js';
+import {
+  buildOrderExport,
+  buildOrderSummary,
+  serializeOrderExport,
+} from '../src/order-summary.js';
 
 test('separates bundle properties and keeps file URLs clickable', () => {
   const sharedAttributes = [
@@ -142,4 +146,63 @@ test('supports manual products with no details or named optional details', () =>
       properties: [{label: 'Lavorazioni e rifiniture', value: 'Rinforzo ed Occhielli'}],
     },
   ]);
+});
+
+test('exports the normalized production summary without internal bookkeeping', () => {
+  const order = {
+    id: 'gid://shopify/Order/123',
+    name: '#WW1001',
+    createdAt: '2026-09-18T10:00:00Z',
+    currencyCode: 'EUR',
+    totalPriceSet: {shopMoney: {amount: '79.00', currencyCode: 'EUR'}},
+    lineItems: {
+      nodes: [{
+        id: 'line-1',
+        title: 'T-shirt & Gilet',
+        variantTitle: '10 / Fronte',
+        quantity: 1,
+        sku: 'KIT-01',
+        customAttributes: [
+          {key: 'Colore', value: 'Nero'},
+          {key: 'File Fronte', value: 'https://upload.example/file?a=1&b=2'},
+        ],
+      }],
+    },
+  };
+
+  const result = buildOrderExport(order, '2026-09-18T12:00:00Z');
+
+  assert.equal(result.order.name, '#WW1001');
+  assert.deepEqual(result.order.totals.total, {amount: '79.00', currencyCode: 'EUR'});
+  assert.deepEqual(result.productionSummary.products[0], {
+    id: 'line-1',
+    title: 'T-shirt & Gilet',
+    sku: 'KIT-01',
+    quantity: '10',
+    properties: [
+      {key: 'Colore', label: 'Colore', value: 'Nero', type: 'text'},
+      {
+        key: 'File Fronte',
+        label: 'File Fronte',
+        value: 'https://upload.example/file?a=1&b=2',
+        type: 'file',
+      },
+    ],
+  });
+  assert.equal('signatures' in result.productionSummary.products[0], false);
+});
+
+test('serializes valid JSON and escapes reserved XML characters', () => {
+  const orderExport = {
+    schemaVersion: 1,
+    order: {name: '#WW1001', note: 'Stampa <urgente> & controllo'},
+    productionSummary: {products: [], general: []},
+  };
+
+  const json = serializeOrderExport(orderExport, 'json');
+  const xml = serializeOrderExport(orderExport, 'xml');
+
+  assert.deepEqual(JSON.parse(json), orderExport);
+  assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
+  assert.match(xml, /Stampa &lt;urgente&gt; &amp; controllo/);
 });

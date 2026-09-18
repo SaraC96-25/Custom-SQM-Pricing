@@ -171,3 +171,105 @@ export function buildOrderSummary(order) {
     general: general.properties,
   };
 }
+
+function exportProperty(property) {
+  return {
+    key: property.key,
+    label: property.label,
+    value: property.value,
+    type: property.isFile ? 'file' : 'text',
+  };
+}
+
+function exportProduct(product) {
+  return {
+    id: product.id,
+    title: product.title,
+    sku: product.sku || null,
+    quantity: product.quantity,
+    properties: product.properties.map(exportProperty),
+  };
+}
+
+export function buildOrderExport(order, exportedAt = new Date().toISOString()) {
+  const summary = buildOrderSummary(order);
+
+  return {
+    schemaVersion: 1,
+    exportedAt,
+    order: {
+      id: order?.id || null,
+      name: order?.name || 'Ordine',
+      createdAt: order?.createdAt || null,
+      updatedAt: order?.updatedAt || null,
+      email: order?.email || null,
+      phone: order?.phone || null,
+      note: order?.note || null,
+      tags: order?.tags || [],
+      currencyCode: order?.currencyCode || null,
+      financialStatus: order?.displayFinancialStatus || null,
+      fulfillmentStatus: order?.displayFulfillmentStatus || null,
+      totals: {
+        subtotal: order?.subtotalPriceSet?.shopMoney || null,
+        shipping: order?.totalShippingPriceSet?.shopMoney || null,
+        tax: order?.totalTaxSet?.shopMoney || null,
+        discounts: order?.totalDiscountsSet?.shopMoney || null,
+        total: order?.totalPriceSet?.shopMoney || null,
+      },
+      customer: order?.customer || null,
+      billingAddress: order?.billingAddress || null,
+      shippingAddress: order?.shippingAddress || null,
+      shippingLines: order?.shippingLines?.nodes || [],
+    },
+    productionSummary: {
+      products: summary.products.map(exportProduct),
+      general: summary.general.map(exportProperty),
+    },
+    shopifyLineItems: order?.lineItems?.nodes || [],
+  };
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function xmlTagName(key) {
+  const cleaned = String(key || 'item').replace(/[^A-Za-z0-9_.-]/g, '-');
+  return /^[A-Za-z_]/.test(cleaned) ? cleaned : `field-${cleaned}`;
+}
+
+function xmlNode(key, value, indentation = '') {
+  const tag = xmlTagName(key);
+
+  if (value === null || value === undefined) {
+    return `${indentation}<${tag}/>`;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return `${indentation}<${tag}/>`;
+    const children = value.map((item) => xmlNode('item', item, `${indentation}  `)).join('\n');
+    return `${indentation}<${tag}>\n${children}\n${indentation}</${tag}>`;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value);
+    if (!entries.length) return `${indentation}<${tag}/>`;
+    const children = entries
+      .map(([childKey, childValue]) => xmlNode(childKey, childValue, `${indentation}  `))
+      .join('\n');
+    return `${indentation}<${tag}>\n${children}\n${indentation}</${tag}>`;
+  }
+
+  return `${indentation}<${tag}>${escapeXml(value)}</${tag}>`;
+}
+
+export function serializeOrderExport(orderExport, format) {
+  if (format === 'json') return `${JSON.stringify(orderExport, null, 2)}\n`;
+  if (format === 'xml') {
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${xmlNode('wowstampaOrderExport', orderExport)}\n`;
+  }
+  throw new Error(`Formato di esportazione non supportato: ${format}`);
+}
