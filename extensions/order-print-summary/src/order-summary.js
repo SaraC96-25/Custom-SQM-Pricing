@@ -216,7 +216,6 @@ export function buildOrderExport(order, exportedAt = new Date().toISOString()) {
         discounts: order?.totalDiscountsSet?.shopMoney || null,
         total: order?.totalPriceSet?.shopMoney || null,
       },
-      customer: order?.customer || null,
       billingAddress: order?.billingAddress || null,
       shippingAddress: order?.shippingAddress || null,
       shippingLines: order?.shippingLines?.nodes || [],

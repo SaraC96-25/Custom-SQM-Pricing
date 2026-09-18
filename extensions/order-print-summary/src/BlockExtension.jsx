@@ -35,12 +35,6 @@ const ORDER_QUERY = `#graphql
       totalPriceSet {
         shopMoney { amount currencyCode }
       }
-      customer {
-        id
-        displayName
-        email
-        phone
-      }
       billingAddress {
         firstName
         lastName
