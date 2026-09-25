@@ -1,9 +1,13 @@
 /** @jsxImportSource preact */
 import {render} from 'preact';
+import {useState} from 'preact/hooks';
 import {
   buildOrderExport,
   buildOrderSummary,
+  displayProperties,
+  paginate,
   serializeOrderExport,
+  splitPreviewProducts,
 } from './order-summary.js';
 
 const ORDER_QUERY = `#graphql
@@ -133,41 +137,108 @@ export default async () => {
   }
 };
 
-function PropertyRow({property}) {
+const PAGE_SIZE = 5;
+
+function PropertyItem({property}) {
+  if (property.isFile) {
+    return (
+      <s-link href={property.value} target="_blank">{property.label}</s-link>
+    );
+  }
   return (
-    <s-stack direction="inline" gap="small-500" alignItems="center" wrap>
+    <s-stack direction="inline" gap="small-500" alignItems="center">
       <s-text type="strong">{property.label}:</s-text>
-      {property.isFile ? (
-        <s-link href={property.value} target="_blank">Apri file</s-link>
-      ) : (
-        <s-text>{property.value}</s-text>
-      )}
+      <s-text>{property.value}</s-text>
+    </s-stack>
+  );
+}
+
+function PropertyLine({properties}) {
+  if (!properties.length) return null;
+  return (
+    <s-stack direction="inline" gap="small-200" alignItems="center" wrap>
+      {properties.map((property, index) => (
+        <s-stack
+          key={`${property.key}-${property.value}`}
+          direction="inline"
+          gap="small-200"
+          alignItems="center"
+        >
+          {index > 0 ? <s-text color="subdued">·</s-text> : null}
+          <PropertyItem property={property} />
+        </s-stack>
+      ))}
     </s-stack>
   );
 }
 
 function ProductCard({product}) {
+  const properties = displayProperties(product);
+  const files = properties.filter((property) => property.isFile);
+  const details = properties.filter((property) => !property.isFile);
+
   return (
-    <s-box padding="small" background="subdued" borderRadius="base">
+    <s-box paddingBlock="small-300" paddingInline="small" background="subdued" borderRadius="base">
       <s-stack direction="block" gap="small-500">
         <s-stack direction="inline" gap="small-300" alignItems="center" wrap>
-          <s-heading>{product.title}</s-heading>
-          <s-badge tone="info">Quantità {product.quantity}</s-badge>
+          <s-text type="strong">{product.title}</s-text>
+          <s-badge tone="info">×{product.quantity}</s-badge>
+          {product.sku ? <s-text color="subdued">SKU {product.sku}</s-text> : null}
         </s-stack>
-        <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small-500 small-200">
-          {product.sku ? (
-            <s-grid-item>
-              <PropertyRow property={{label: 'SKU', value: product.sku, isFile: false}} />
-            </s-grid-item>
-          ) : null}
-          {product.properties.map((property) => (
-            <s-grid-item key={`${property.key}-${property.value}`}>
-              <PropertyRow property={property} />
-            </s-grid-item>
-          ))}
-        </s-grid>
+        <PropertyLine properties={details} />
+        <PropertyLine properties={files} />
       </s-stack>
     </s-box>
+  );
+}
+
+function PreviewsCard({previews}) {
+  return (
+    <s-box paddingBlock="small-300" paddingInline="small" background="subdued" borderRadius="base">
+      <s-stack direction="block" gap="small-500">
+        <s-stack direction="inline" gap="small-300" alignItems="center">
+          <s-text type="strong">Anteprime di stampa</s-text>
+          <s-badge>{previews.length}</s-badge>
+        </s-stack>
+        {previews.map((preview) => (
+          <s-stack key={preview.id} direction="inline" gap="small-200" alignItems="center" wrap>
+            <s-text>{preview.target || 'Prodotto non indicato'}</s-text>
+            {Number(preview.quantity) > 1 ? <s-text color="subdued">×{preview.quantity}</s-text> : null}
+            <s-text color="subdued">—</s-text>
+            {preview.files.length ? (
+              <PropertyLine properties={[...preview.details, ...preview.files]} />
+            ) : (
+              <s-text color="subdued">nessun file</s-text>
+            )}
+          </s-stack>
+        ))}
+      </s-stack>
+    </s-box>
+  );
+}
+
+function Pager({pagination, onChange}) {
+  if (pagination.pageCount < 2) return null;
+  return (
+    <s-stack direction="inline" gap="small-300" alignItems="center" justifyContent="space-between">
+      <s-button
+        variant="tertiary"
+        disabled={pagination.page === 0}
+        onClick={() => onChange(pagination.page - 1)}
+      >
+        ‹ Precedenti
+      </s-button>
+      <s-text color="subdued">
+        Articoli {pagination.start + 1}–{pagination.end} di {pagination.total}
+      </s-text>
+      <s-button
+        variant="tertiary"
+        disabled={pagination.page >= pagination.pageCount - 1}
+        onClick={() => onChange(pagination.page + 1)}
+      >
+        Successivi ›
+      </s-button>
+    </s-stack>
   );
 }
 
@@ -185,32 +256,40 @@ function downloadData(order, format) {
 }
 
 function Extension({order, summary}) {
+  const [page, setPage] = useState(0);
+  const {items, previews} = splitPreviewProducts(summary.products);
+  const pagination = paginate(items, page, PAGE_SIZE);
+  const isLastPage = pagination.page >= pagination.pageCount - 1;
   const fileCount = summary.products.reduce(
     (total, product) => total + product.properties.filter((property) => property.isFile).length,
     0,
   );
   const jsonDownload = downloadData(order, 'json');
   const xmlDownload = downloadData(order, 'xml');
+  const collapsedParts = [`${items.length} prodotti`];
+  if (previews.length) collapsedParts.push(`${previews.length} anteprime`);
+  collapsedParts.push(`${fileCount} file`);
 
   return (
     <s-admin-block
       heading="Riepilogo produzione e file"
-      collapsedSummary={`${summary.products.length} prodotti · ${fileCount} file`}
+      collapsedSummary={collapsedParts.join(' · ')}
     >
       <s-stack direction="block" gap="small-300">
-        {summary.products.length ? summary.products.map((product) => (
-          <ProductCard key={product.id} product={product} />
-        )) : (
+        {summary.products.length ? null : (
           <s-text color="subdued">Nessuna proprietà personalizzata trovata in questo ordine.</s-text>
         )}
-        {summary.general.length ? (
+        <Pager pagination={pagination} onChange={setPage} />
+        {pagination.items.map((product) => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+        {isLastPage && previews.length ? <PreviewsCard previews={previews} /> : null}
+        {isLastPage && summary.general.length ? (
           <>
             <s-divider />
             <s-stack direction="block" gap="small-500">
-              <s-heading>Informazioni generali del bundle</s-heading>
-              {summary.general.map((property) => (
-                <PropertyRow key={`${property.key}-${property.value}`} property={property} />
-              ))}
+              <s-text type="strong">Informazioni generali del bundle</s-text>
+              <PropertyLine properties={summary.general} />
             </s-stack>
           </>
         ) : null}

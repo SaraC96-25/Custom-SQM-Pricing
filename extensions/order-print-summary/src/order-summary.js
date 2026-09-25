@@ -172,6 +172,62 @@ export function buildOrderSummary(order) {
   };
 }
 
+const PREVIEW_TITLE_PATTERN = /^anteprima di stampa\b/;
+
+export function isPreviewProduct(product) {
+  return PREVIEW_TITLE_PATTERN.test(normalize(product?.title));
+}
+
+// Splits the summary products into production items and print-preview line
+// items ("Anteprima di Stampa"). Previews are shown as compact rows so large
+// orders fit inside the admin block height limit.
+export function splitPreviewProducts(products) {
+  const items = [];
+  const previews = [];
+
+  (products || []).forEach((product) => {
+    if (!isPreviewProduct(product)) {
+      items.push(product);
+      return;
+    }
+
+    const target = product.properties.find((property) => normalize(property.label) === 'prodotto');
+    previews.push({
+      id: product.id,
+      quantity: product.quantity,
+      target: target?.value || '',
+      files: product.properties.filter((property) => property.isFile),
+      details: product.properties.filter((property) => property !== target && !property.isFile),
+    });
+  });
+
+  return {items, previews};
+}
+
+// Hides the "Quantità" property when it only repeats the quantity badge.
+export function displayProperties(product) {
+  return (product?.properties || []).filter((property) => {
+    return !(normalize(property.label) === 'quantita' && String(property.value) === String(product.quantity));
+  });
+}
+
+export function paginate(list, page, pageSize) {
+  const total = (list || []).length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const current = Math.min(Math.max(0, page || 0), pageCount - 1);
+  const start = current * pageSize;
+  const end = Math.min(start + pageSize, total);
+
+  return {
+    page: current,
+    pageCount,
+    total,
+    start,
+    end,
+    items: (list || []).slice(start, end),
+  };
+}
+
 function exportProperty(property) {
   return {
     key: property.key,
