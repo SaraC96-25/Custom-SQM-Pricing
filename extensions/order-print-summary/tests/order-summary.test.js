@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   buildOrderExport,
   buildOrderSummary,
+  displayProperties,
+  paginate,
   serializeOrderExport,
+  splitPreviewProducts,
 } from '../src/order-summary.js';
 
 test('separates bundle properties and keeps file URLs clickable', () => {
@@ -205,4 +208,41 @@ test('serializes valid JSON and escapes reserved XML characters', () => {
   assert.deepEqual(JSON.parse(json), orderExport);
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
   assert.match(xml, /Stampa &lt;urgente&gt; &amp; controllo/);
+});
+
+test('separates print-preview line items from production items', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {id: 'p1', title: 'Anteprima di Stampa', quantity: 1, customAttributes: [
+          {key: 'prodotto', value: 'Striscioni Standard'},
+          {key: 'File Fronte_1', value: 'https://upload.cloudlift.app/preview.pdf'},
+        ]},
+        {id: 'l1', title: 'Striscioni Standard', quantity: 2, customAttributes: [
+          {key: 'Quantità', value: '2'},
+          {key: 'Materiale', value: 'Banner PVC 510g'},
+          {key: 'File Fronte_1', value: 'https://upload.cloudlift.app/banner.pdf'},
+        ]},
+      ],
+    },
+  });
+
+  const {items, previews} = splitPreviewProducts(summary.products);
+  assert.deepEqual(items.map((item) => item.id), ['l1']);
+  assert.equal(previews.length, 1);
+  assert.equal(previews[0].target, 'Striscioni Standard');
+  assert.deepEqual(previews[0].files.map((file) => file.label), ['File Fronte 1']);
+  assert.deepEqual(previews[0].details, []);
+  assert.deepEqual(displayProperties(items[0]).map((property) => property.label), ['Materiale', 'File Fronte 1']);
+});
+
+test('paginates and clamps the requested page', () => {
+  const list = Array.from({length: 12}, (_, index) => index);
+  assert.deepEqual(paginate(list, 0, 5).items, [0, 1, 2, 3, 4]);
+  const last = paginate(list, 9, 5);
+  assert.equal(last.page, 2);
+  assert.equal(last.pageCount, 3);
+  assert.deepEqual(last.items, [10, 11]);
+  assert.equal(last.start, 10);
+  assert.equal(paginate([], 0, 5).pageCount, 1);
 });
