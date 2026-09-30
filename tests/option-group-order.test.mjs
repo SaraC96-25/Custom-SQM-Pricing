@@ -36,3 +36,25 @@ test("saved JSON preserves the reordered groups and their settings", () => {
   const moved = moveOptionGroup(config, 2, -1);
   assert.deepEqual(parseProductConfig(stringifyProductConfig(moved)), moved);
 });
+
+test("normalizes image swatch option groups and preserves swatch images", () => {
+  const parsed = parseProductConfig({
+    optionGroups: [
+      {
+        id: "formato",
+        label: "Formato",
+        type: "image_swatch",
+        defaultValue: "orizzontale",
+        options: [
+          { value: "orizzontale", label: "Orizzontale", swatchImage: "https://cdn.example.com/h.svg" },
+          { value: "verticale", label: "Verticale", imageUrl: "https://cdn.example.com/v.svg" },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(parsed.optionGroups[0].type, "image_swatch");
+  assert.equal(parsed.optionGroups[0].options[0].swatchImage, "https://cdn.example.com/h.svg");
+  assert.equal(parsed.optionGroups[0].options[1].swatchImage, "https://cdn.example.com/v.svg");
+  assert.deepEqual(parseProductConfig(stringifyProductConfig(parsed)), parsed);
+});

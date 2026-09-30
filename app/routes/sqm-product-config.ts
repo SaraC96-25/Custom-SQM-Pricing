@@ -11,6 +11,7 @@ export type PriceModifierTarget = "base" | "subtotal";
 export type OptionGroupType =
   | "button"
   | "radio"
+  | "image_swatch"
   | "dropdown"
   | "checkbox"
   | "toggle";
@@ -26,6 +27,7 @@ export type SqmOption = {
   value: string;
   label: string;
   badge?: string;
+  swatchImage?: string;
   priceModifier: PriceModifier;
 };
 
@@ -141,6 +143,7 @@ const PRICE_TARGETS = new Set<PriceModifierTarget>(["base", "subtotal"]);
 const GROUP_TYPES = new Set<OptionGroupType>([
   "button",
   "radio",
+  "image_swatch",
   "dropdown",
   "checkbox",
   "toggle",
@@ -403,6 +406,7 @@ function normalizeOption(value: unknown, optionIndex = 0): SqmOption | null {
     value: optionValue,
     label,
     badge: String(source.badge ?? "").trim(),
+    swatchImage: String(source.swatchImage ?? source.image ?? source.imageUrl ?? "").trim(),
     priceModifier: normalizePriceModifier(source.priceModifier),
   };
 }

@@ -129,6 +129,11 @@ const OPTION_TYPE_OPTIONS: Array<{
     description: "Ideale per una scelta singola ordinata",
   },
   {
+    label: "Image Swatch",
+    value: "image_swatch",
+    description: "Card visuali con immagine o anteprima formato",
+  },
+  {
     label: "Dropdown",
     value: "dropdown",
     description: "Ideale per tante opzioni",
@@ -200,6 +205,13 @@ function summarizeOptionGroup(group: SqmOptionGroup) {
         ? `${pricedCount} ${pricedCount === 1 ? "valore con extra" : "valori con extra"}`
         : "Nessun extra prezzo",
   };
+}
+
+function getSwatchOrientation(option: SqmOption) {
+  const value = normalizeId(`${option.label} ${option.value}`);
+  if (value.includes("verticale") || value.includes("vertical")) return "vertical";
+  if (value.includes("orizzontale") || value.includes("horizontal")) return "horizontal";
+  return "square";
 }
 
 function SqmIconPreview({
@@ -2271,6 +2283,22 @@ export default function Index() {
                                 </label>
 
                                 <label className="sqm-field">
+                                  <span>Immagine swatch</span>
+                                  <input
+                                    onChange={(event) =>
+                                      updateOptionValue(
+                                        optionIndex,
+                                        "swatchImage",
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder="URL immagine opzionale"
+                                    type="url"
+                                    value={option.swatchImage ?? ""}
+                                  />
+                                </label>
+
+                                <label className="sqm-field">
                                   <span>Valore default</span>
                                   <select
                                     onChange={(event) =>
@@ -2388,6 +2416,38 @@ export default function Index() {
                                 </option>
                               ))}
                             </select>
+                          ) : draftOptionGroup.type === "image_swatch" ? (
+                            <div className="sqm-option-preview__swatches">
+                              {draftOptionGroup.options.map((option) => {
+                                const orientation = getSwatchOrientation(option);
+
+                                return (
+                                  <span
+                                    className={`sqm-option-preview__swatch ${
+                                      draftOptionGroup.defaultValue === option.value
+                                        ? "is-active"
+                                        : ""
+                                    }`}
+                                    key={option.value}
+                                  >
+                                    <span className="sqm-option-preview__swatch-media">
+                                      {option.swatchImage ? (
+                                        <img alt="" src={option.swatchImage} />
+                                      ) : (
+                                        <span
+                                          className={`sqm-option-preview__swatch-shape is-${orientation}`}
+                                        />
+                                      )}
+                                    </span>
+                                    <strong>{option.label || option.value}</strong>
+                                    {option.badge ? <em>{option.badge}</em> : null}
+                                    {formatPriceModifierLabel(option.priceModifier) ? (
+                                      <small>{formatPriceModifierLabel(option.priceModifier)}</small>
+                                    ) : null}
+                                  </span>
+                                );
+                              })}
+                            </div>
                           ) : (
                             <div className="sqm-option-preview__chips">
                               {draftOptionGroup.options.map((option) => (
@@ -3580,6 +3640,81 @@ const styles = `
     background: #edf8f1;
     border-color: var(--sqm-green);
     color: var(--sqm-green);
+  }
+
+  .sqm-option-preview__swatches {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    margin-top: 12px;
+  }
+
+  .sqm-option-preview__swatch {
+    align-items: center;
+    background: #ffffff;
+    border: 2px solid #dfe5e1;
+    border-radius: 8px;
+    color: var(--sqm-ink);
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    min-height: 104px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+
+  .sqm-option-preview__swatch.is-active {
+    background: #f2fbf5;
+    border-color: var(--sqm-green);
+    color: var(--sqm-green-dark);
+  }
+
+  .sqm-option-preview__swatch-media {
+    align-items: center;
+    display: flex;
+    height: 36px;
+    justify-content: center;
+    width: 56px;
+  }
+
+  .sqm-option-preview__swatch-media img {
+    display: block;
+    max-height: 42px;
+    max-width: 64px;
+    object-fit: contain;
+  }
+
+  .sqm-option-preview__swatch-shape {
+    background: var(--sqm-green);
+    border-radius: 4px;
+    display: block;
+  }
+
+  .sqm-option-preview__swatch-shape.is-horizontal {
+    height: 18px;
+    width: 48px;
+  }
+
+  .sqm-option-preview__swatch-shape.is-vertical {
+    height: 48px;
+    width: 26px;
+  }
+
+  .sqm-option-preview__swatch-shape.is-square {
+    height: 34px;
+    width: 34px;
+  }
+
+  .sqm-option-preview__swatch strong {
+    font-size: 13px;
+  }
+
+  .sqm-option-preview__swatch em,
+  .sqm-option-preview__swatch small {
+    color: var(--sqm-muted);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
   }
 
   .sqm-variants {
