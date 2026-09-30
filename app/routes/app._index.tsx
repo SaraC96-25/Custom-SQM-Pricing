@@ -23,6 +23,7 @@ import {
   createEmptyOptionGroup,
   EMPTY_PRODUCT_CONFIG,
   formatPriceModifierLabel,
+  moveOptionGroup,
   normalizeProductConfig,
   normalizeId,
   normalizeSqmIconValue,
@@ -1275,6 +1276,11 @@ export default function Index() {
     });
   };
 
+  const reorderOptionGroup = (index: number, direction: -1 | 1) => {
+    if (draftOptionGroup) return;
+    updateProductConfig((current) => moveOptionGroup(current, index, direction));
+  };
+
   const editOptionGroup = (index: number) => {
     const source = productConfig.optionGroups[index];
     if (!source) return;
@@ -1960,6 +1966,8 @@ export default function Index() {
                         <p>
                           Configura visivamente le opzioni del calcolatore. Il JSON
                           resta disponibile solo come editor avanzato e debug.
+                          {" "}Usa Sposta su e Sposta giu per riordinare i gruppi,
+                          poi salva la configurazione.
                         </p>
                       </div>
                       <div className="sqm-variant-menu">
@@ -1991,6 +1999,9 @@ export default function Index() {
                     </div>
 
                     <div className="sqm-option-groups">
+                      {draftOptionGroup ? (
+                        <p>Salva o annulla la variante in modifica prima di riordinare i gruppi.</p>
+                      ) : null}
                       {productConfig.optionGroups.map((group, groupIndex) => {
                         const summary = summarizeOptionGroup(group);
 
@@ -2010,6 +2021,24 @@ export default function Index() {
                                 <p>Prezzo: {summary.pricedLabel}</p>
                               </div>
                               <div className="sqm-option-card__actions">
+                                <button
+                                  aria-label={`Sposta su ${group.label || `Variante ${groupIndex + 1}`}`}
+                                  className="sqm-button sqm-button--small"
+                                  disabled={groupIndex === 0 || Boolean(draftOptionGroup)}
+                                  onClick={() => reorderOptionGroup(groupIndex, -1)}
+                                  type="button"
+                                >
+                                  Sposta su
+                                </button>
+                                <button
+                                  aria-label={`Sposta giu ${group.label || `Variante ${groupIndex + 1}`}`}
+                                  className="sqm-button sqm-button--small"
+                                  disabled={groupIndex === productConfig.optionGroups.length - 1 || Boolean(draftOptionGroup)}
+                                  onClick={() => reorderOptionGroup(groupIndex, 1)}
+                                  type="button"
+                                >
+                                  Sposta giu
+                                </button>
                                 <button
                                   className="sqm-button sqm-button--small"
                                   onClick={() => editOptionGroup(groupIndex)}

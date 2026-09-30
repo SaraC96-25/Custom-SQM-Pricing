@@ -297,6 +297,19 @@ export function parseProductConfig(value: unknown): SqmProductConfig {
 
 export const parseProductAdvancedConfig = parseProductConfig;
 
+export function moveOptionGroup(
+  config: SqmProductConfig,
+  index: number,
+  direction: -1 | 1,
+): SqmProductConfig {
+  const target = index + direction;
+  if (!Number.isInteger(index) || index < 0 || index >= config.optionGroups.length ||
+      target < 0 || target >= config.optionGroups.length) return config;
+  const optionGroups = [...config.optionGroups];
+  [optionGroups[index], optionGroups[target]] = [optionGroups[target], optionGroups[index]];
+  return { ...config, optionGroups };
+}
+
 export function normalizeProductConfig(value: unknown): SqmProductConfig {
   return parseProductConfig(value);
 }
