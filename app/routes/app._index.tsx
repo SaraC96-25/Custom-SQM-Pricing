@@ -74,8 +74,14 @@ type ProductSummary = {
   variants: VariantSummary[];
 };
 
+type DuplicateTarget = {
+  id: string;
+  title: string;
+};
+
 type LoaderData = {
   products: ProductSummary[];
+  duplicateTargetOptions: DuplicateTarget[];
   selectedProduct: ProductSummary | null;
   search: string;
   cartTransformStatus: CartTransformStatus;
@@ -289,6 +295,48 @@ const PRODUCTS_QUERY = `#graphql
     }
   }
 `;
+
+const DUPLICATE_TARGETS_QUERY = `#graphql
+  query CustomSqmPricingDuplicateTargets($after: String) {
+    products(first: 250, after: $after, sortKey: TITLE) {
+      edges {
+        node {
+          id
+          title
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+async function loadDuplicateTargets(admin: any): Promise<DuplicateTarget[]> {
+  const targets: DuplicateTarget[] = [];
+  let after: string | null = null;
+
+  // Max 20 pagine (5000 prodotti) per evitare loop infiniti.
+  for (let page = 0; page < 20; page += 1) {
+    const response = await admin.graphql(DUPLICATE_TARGETS_QUERY, {
+      variables: { after },
+    });
+    const json: any = await response.json();
+
+    if (json.errors?.length) break;
+
+    const connection = json.data?.products;
+    for (const { node } of connection?.edges ?? []) {
+      targets.push({ id: node.id, title: node.title });
+    }
+
+    if (!connection?.pageInfo?.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+
+  return targets;
+}
 
 const METAFIELDS_SET_MUTATION = `#graphql
   mutation CustomSqmPricingSaveProduct($metafields: [MetafieldsSetInput!]!) {
@@ -599,8 +647,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     products[0] ??
     null;
 
+  const duplicateTargetOptions = await loadDuplicateTargets(admin);
+
   return {
     products,
+    duplicateTargetOptions,
     selectedProduct,
     search,
     cartTransformStatus,
@@ -947,8 +998,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { products, selectedProduct, search, cartTransformStatus } =
-    useLoaderData() as LoaderData;
+  const {
+    products,
+    duplicateTargetOptions,
+    selectedProduct,
+    search,
+    cartTransformStatus,
+  } = useLoaderData() as LoaderData;
   const fetcher = useFetcher();
   const duplicateFetcher = useFetcher();
   const actionData = fetcher.data as ActionData | undefined;
@@ -993,8 +1049,9 @@ export default function Index() {
   const isDuplicating = duplicateFetcher.state !== "idle";
   const totalConfigured = products.filter((product) => product.enabled).length;
   const duplicateTargets = useMemo(
-    () => products.filter((product) => product.id !== selectedProduct?.id),
-    [products, selectedProduct?.id],
+    () =>
+      duplicateTargetOptions.filter((product) => product.id !== selectedProduct?.id),
+    [duplicateTargetOptions, selectedProduct?.id],
   );
   const rangeErrors = useMemo(() => validateRanges(normalizeRanges(ranges)), [ranges]);
   const promoErrors = useMemo(
@@ -1056,9 +1113,7 @@ export default function Index() {
     setDraftOptionGroup(null);
     setEditingOptionGroupIndex(null);
     setActiveTab("promo");
-    setDuplicateTargetProductId(
-      products.find((product) => product.id !== selectedProduct?.id)?.id ?? "",
-    );
+    setDuplicateTargetProductId("");
   }, [products, selectedProduct]);
 
   useEffect(() => {
@@ -1660,6 +1715,11 @@ export default function Index() {
                       }
                       value={duplicateTargetProductId}
                     >
+                      <option value="">
+                        {duplicateTargets.length
+                          ? "Seleziona un prodotto..."
+                          : "Nessun altro prodotto disponibile"}
+                      </option>
                       {duplicateTargets.map((product) => (
                         <option key={product.id} value={product.id}>
                           {product.title}
