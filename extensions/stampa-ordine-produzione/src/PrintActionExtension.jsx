@@ -5,27 +5,19 @@ import {useEffect, useState} from 'preact/hooks';
 const ORDER_QUERY = `#graphql
   query PrintableOrder($id: ID!) {
     order(id: $id) {
-      id name createdAt processedAt email phone note tags currencyCode
-      displayFinancialStatus displayFulfillmentStatus paymentGatewayNames
-      customAttributes { key value }
+      id name createdAt updatedAt email phone note tags currencyCode
+      displayFinancialStatus displayFulfillmentStatus
       subtotalPriceSet { shopMoney { amount currencyCode } }
       totalShippingPriceSet { shopMoney { amount currencyCode } }
       totalTaxSet { shopMoney { amount currencyCode } }
       totalDiscountsSet { shopMoney { amount currencyCode } }
       totalPriceSet { shopMoney { amount currencyCode } }
-      netPaymentSet { shopMoney { amount currencyCode } }
       billingAddress { firstName lastName company address1 address2 city province zip country phone }
       shippingAddress { firstName lastName company address1 address2 city province zip country phone }
-      customer { displayName email phone }
       shippingLines(first: 20) { nodes { title code originalPriceSet { shopMoney { amount currencyCode } } } }
-      events(first: 40, reverse: true) { nodes { id createdAt message } }
       lineItems(first: 250) {
         nodes {
-          id title name quantity variantTitle sku image { url altText }
-          originalUnitPriceSet { shopMoney { amount currencyCode } }
-          originalTotalSet { shopMoney { amount currencyCode } }
-          discountedUnitPriceSet { shopMoney { amount currencyCode } }
-          discountedTotalSet { shopMoney { amount currencyCode } }
+          id title name quantity variantTitle sku
           customAttributes { key value }
           lineItemGroup { id customAttributes { key value } }
         }
@@ -89,7 +81,7 @@ function Extension() {
         <s-text color="subdued">
           Il documento include il riepilogo semplificato degli articoli e i dati dell’ordine Shopify.
         </s-text>
-        {!documentUrl && !error ? <s-spinner accessibilityLabel="Preparazione documento" /> : null}
+        {!documentUrl && !error ? <s-text color="subdued">Preparazione documento…</s-text> : null}
         <s-checkbox
           name="include-timeline"
           checked={includeTimeline}
