@@ -1,0 +1,19 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "stampa-ordine-produzione"
+handle = "stampa-ordine-produzione"
+type = "ui_extension"
+uid = "9470883a-0011-5b12-4923-9ba94773fbb94b7d54db"
+
+# Only 1 target can be specified for each admin print action extension
+[[extensions.targeting]]
+module = "./src/PrintActionExtension.jsx"
+target = "admin.order-details.print-action.render"
+
+# Valid extension targets:
+
+# - admin.order-details.print-action.render
+# - admin.order-index.selection-print-action.render
+# - admin.product-details.print-action.render
+# - admin.product-index.selection-print-action.render

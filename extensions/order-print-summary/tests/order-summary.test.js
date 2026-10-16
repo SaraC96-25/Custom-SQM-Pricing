@@ -68,6 +68,157 @@ test('uses Shopify line quantity when the variant title has no quantity prefix',
   assert.equal(summary.products[0].quantity, 3);
 });
 
+test('merges print preview lines into their related products', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {
+          id: 'product-line-1',
+          title: 'Striscioni FORMATI PROMO',
+          variantTitle: 'Default Title',
+          quantity: 1,
+          sku: 'STR-PROMO',
+          customAttributes: [],
+        },
+        {
+          id: 'preview-line-1',
+          title: 'Anteprima di Stampa',
+          quantity: 1,
+          customAttributes: [
+            {key: 'prodotto', value: 'Striscioni FORMATI PROMO'},
+            {key: 'File Fronte_1', value: 'https://upload.example/preview.pdf'},
+          ],
+        },
+        {
+          id: 'product-line-2',
+          title: 'Striscioni Standard',
+          variantTitle: 'Default Title',
+          quantity: 2,
+          sku: 'STR-STD',
+          customAttributes: [{key: 'Altezza (cm)', value: '50'}],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(summary.products.map((product) => product.title), [
+    'Striscioni FORMATI PROMO',
+    'Striscioni Standard',
+  ]);
+  assert.deepEqual(summary.products[0].properties.map(({label, value, isFile}) => ({
+    label,
+    value,
+    isFile,
+  })), [
+    {label: 'Anteprima di Stampa', value: 'Sì, grazie', isFile: false},
+    {label: 'File Fronte 1', value: 'https://upload.example/preview.pdf', isFile: true},
+  ]);
+});
+
+test('deduplicates file attributes by URL and keeps the File-prefixed label', () => {
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [{
+        id: 'line-1',
+        title: 'Felpa girocollo UNISEX',
+        quantity: 10,
+        customAttributes: [
+          {key: 'Lato Cuore_1', value: 'https://upload.example/cuore.pdf'},
+          {key: 'File Lato Cuore_1', value: 'https://upload.example/cuore.pdf'},
+          {key: 'File Retro_1', value: 'https://upload.example/retro.pdf'},
+          {key: 'Retro_1', value: 'https://upload.example/retro.pdf'},
+        ],
+      }],
+    },
+  });
+
+  assert.deepEqual(summary.products[0].properties.map(({label, value}) => ({label, value})), [
+    {label: 'File Lato Cuore 1', value: 'https://upload.example/cuore.pdf'},
+    {label: 'File Retro 1', value: 'https://upload.example/retro.pdf'},
+  ]);
+});
+
+test('ignores stale bundle properties scoped to products not present in the bundle', () => {
+  const group = {
+    id: 'gid://shopify/LineItemGroup/pack-berretti',
+    customAttributes: [
+      {key: 'Berretti Invernali · Posizione stampa', value: 'Fronte'},
+      {key: 'Berretti Invernali · Taglia', value: 'Unica'},
+      {key: 'Berretti Invernali · Quantità', value: '20'},
+      {key: '5 Caps + 5 Vests · Posizione stampa', value: 'Fronte'},
+      {key: '5 Caps + 5 Vests · Taglia', value: 'Unica'},
+      {key: '5 Caps + 5 Vests · Quantità', value: '20'},
+      {key: 'Modalità invio file', value: 'Invio i file dopo'},
+    ],
+  };
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {
+          id: 'line-1',
+          title: 'Berretti Invernali',
+          variantTitle: '20 / Patch Fronte',
+          quantity: 1,
+          customAttributes: [],
+          lineItemGroup: group,
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(summary.products[0].properties.map(({label, value}) => ({label, value})), [
+    {label: 'Posizione stampa', value: 'Fronte'},
+    {label: 'Taglia', value: 'Unica'},
+    {label: 'Quantità', value: '20'},
+  ]);
+  assert.deepEqual(summary.general.map(({label, value}) => ({label, value})), [
+    {label: 'Modalità invio file', value: 'Invio i file dopo'},
+  ]);
+});
+
+test('assigns generic bundle files using product, print position, and graphic references', () => {
+  const group = {
+    id: 'gid://shopify/LineItemGroup/wowpack',
+    customAttributes: [
+      {key: 'Felpa girocollo UNISEX · Posizione stampa', value: 'Lato Cuore'},
+      {key: 'Felpa girocollo UNISEX · Pezzi_1', value: '10 x M Black'},
+      {key: 'Felpa girocollo UNISEX · Grafica_1', value: '6 x M Black'},
+      {key: 'Felpa girocollo UNISEX · Grafica_2', value: '4 x M Black'},
+      {key: 'Berretti Invernali · Posizione stampa', value: 'Fronte'},
+      {key: 'Berretti Invernali · Pezzi', value: '10 x Taglia Unica Nero'},
+      {key: 'File Lato Cuore 1', value: 'https://upload.example/felpa-1.pdf'},
+      {key: 'File BERRETTI Toppa Circolare - Fronte_1', value: 'https://upload.example/berretti.pdf'},
+      {key: 'File Lato Cuore - Grafica 2_1', value: 'https://upload.example/felpa-2.pdf'},
+    ],
+  };
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {id: 'felpa', title: 'Felpa girocollo UNISEX', quantity: 10, customAttributes: [], lineItemGroup: group},
+        {id: 'berretti', title: 'Berretti Invernali', quantity: 10, customAttributes: [], lineItemGroup: group},
+      ],
+    },
+  });
+
+  const felpa = summary.products.find((product) => product.id === 'felpa');
+  const berretti = summary.products.find((product) => product.id === 'berretti');
+  assert.deepEqual(felpa.properties.filter((property) => property.isFile).map((property) => ({
+    label: property.label,
+    reference: property.reference,
+  })), [
+    {label: 'File Lato Cuore 1', reference: 'Grafica 1: 6 x M Black'},
+    {label: 'File Lato Cuore - Grafica 2 1', reference: 'Grafica 2: 4 x M Black'},
+  ]);
+  assert.equal(felpa.properties.some((property) => property.label === 'Pezzi'), false);
+  assert.deepEqual(berretti.properties.filter((property) => property.isFile).map((property) => ({
+    label: property.label,
+    reference: property.reference,
+  })), [
+    {label: 'File BERRETTI Toppa Circolare - Fronte 1', reference: 'Pezzi: 10 x Taglia Unica Nero'},
+  ]);
+  assert.equal(summary.general.length, 0);
+});
+
 test('parses a structured custom product title from a manual order', () => {
   const summary = buildOrderSummary({
     lineItems: {
@@ -186,6 +337,7 @@ test('exports the normalized production summary without internal bookkeeping', (
         label: 'File Fronte',
         value: 'https://upload.example/file?a=1&b=2',
         type: 'file',
+        reference: 'Colore: Nero',
       },
     ],
   });

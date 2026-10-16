@@ -50,17 +50,154 @@ function findOwner(key, products) {
     .sort((a, b) => normalize(b.title).length - normalize(a.title).length)[0] || null;
 }
 
+function isFileAttribute(attribute) {
+  return FILE_URL_PATTERN.test(String(attribute?.value || '').trim());
+}
+
+const FILE_MATCH_STOP_WORDS = new Set([
+  'file', 'grafica', 'stampa', 'posizione', 'taglia', 'taglie', 'colore',
+  'pezzi', 'quantita', 'fronte', 'retro', 'lato', 'cuore', 'toppa',
+]);
+
+function meaningfulTokens(value) {
+  return normalize(value)
+    .split(' ')
+    .filter((token) => token.length > 2 && !/^\d+$/.test(token) && !FILE_MATCH_STOP_WORDS.has(token));
+}
+
+function findFileOwner(attribute, products) {
+  const titleOwner = findOwner(attribute.key, products);
+  if (titleOwner) return titleOwner;
+
+  const normalizedKey = normalize(attribute.key);
+  const keyTokens = new Set(meaningfulTokens(attribute.key));
+  const ranked = products.map((product) => {
+    let score = 0;
+
+    meaningfulTokens(product.title).forEach((token) => {
+      if (keyTokens.has(token)) score += 4;
+    });
+
+    product.properties.forEach((property) => {
+      const label = normalize(property.label);
+      const value = normalize(property.value);
+      if (label.startsWith('grafica') && normalizedKey.includes(label)) score += 8;
+      if (label === 'posizione stampa' && value && normalizedKey.includes(value)) score += 5;
+    });
+
+    return {product, score};
+  }).sort((a, b) => b.score - a.score);
+
+  if (!ranked[0]?.score || ranked[0].score === ranked[1]?.score) return null;
+  return ranked[0].product;
+}
+
+function addFileReferences(products) {
+  products.forEach((product) => {
+    product.properties.forEach((property) => {
+      if (!property.isFile) return;
+      const normalizedKey = normalize(property.key);
+      const explicitGraphic = normalizedKey.match(/\bgrafica\s+(\d+)\b/);
+      const fileSequence = String(property.key || '').match(/(?:_|\s)(\d+)$/);
+      const graphicNumber = explicitGraphic?.[1] || fileSequence?.[1] || '';
+      const graphic = product.properties.find((candidate) => {
+        const label = normalize(candidate.label);
+        return !candidate.isFile && label === `grafica ${graphicNumber}`;
+      });
+      const pieces = product.properties.find((candidate) => {
+        return !candidate.isFile && normalize(candidate.label) === 'pezzi';
+      });
+
+      if (graphic) {
+        property.reference = `${graphic.label}: ${graphic.value}`;
+        return;
+      }
+      if (pieces) {
+        property.reference = `${pieces.label}: ${pieces.value}`;
+        return;
+      }
+
+      const context = product.properties
+        .filter((candidate) => {
+          const label = normalize(candidate.label);
+          return !candidate.isFile && ['quantita', 'taglia', 'taglie', 'colore'].includes(label);
+        })
+        .map((candidate) => `${candidate.label}: ${candidate.value}`);
+      if (context.length) property.reference = context.join(' · ');
+    });
+
+    const hasGraphicBreakdown = product.properties.some((property) => {
+      return !property.isFile && /^grafica\s+\d+$/.test(normalize(property.label));
+    });
+    if (hasGraphicBreakdown) {
+      product.properties = product.properties.filter((property) => {
+        return property.isFile || !/^pezzi(?:\s+\d+)?$/.test(normalize(property.label));
+      });
+    }
+  });
+}
+
+function hasProductScopedPrefix(key) {
+  const prefix = String(key || '').split('·')[0]?.trim() || '';
+  return Boolean(prefix && prefix !== String(key || '').trim());
+}
+
+function isPrintPreviewLine(line) {
+  return normalize(line?.title || line?.name) === 'anteprima di stampa';
+}
+
+function isPreviewProductAttribute(attribute) {
+  const key = normalize(attribute?.key);
+  return key === 'prodotto' || key === 'product' || key === 'prodotto collegato';
+}
+
+function findPreviewOwner(productReference, products) {
+  const reference = normalize(productReference);
+  if (!reference) return null;
+
+  return products
+    .filter((product) => {
+      const title = normalize(product.title);
+      return title === reference || title.includes(reference) || reference.includes(title);
+    })
+    .sort((a, b) => {
+      const exactA = normalize(a.title) === reference ? 1 : 0;
+      const exactB = normalize(b.title) === reference ? 1 : 0;
+      return exactB - exactA || normalize(b.title).length - normalize(a.title).length;
+    })[0] || null;
+}
+
 function appendProperty(target, attribute, productTitle) {
   if (!target || !attribute) return;
-  const signature = `${attribute.key}::${attribute.value}`;
-  if (target.signatures.has(signature)) return;
-  target.signatures.add(signature);
-  target.properties.push({
+  const value = String(attribute.value || '').trim();
+  const isFile = FILE_URL_PATTERN.test(value);
+  const property = {
     key: attribute.key,
     label: cleanPropertyLabel(attribute.key, productTitle),
     value: attribute.value,
-    isFile: FILE_URL_PATTERN.test(String(attribute.value).trim()),
-  });
+    isFile,
+  };
+
+  if (isFile) {
+    const duplicateIndex = target.properties.findIndex((existing) => {
+      return existing.isFile && String(existing.value).trim() === value;
+    });
+
+    if (duplicateIndex >= 0) {
+      const existing = target.properties[duplicateIndex];
+      const newLabelHasFilePrefix = /^file\b/i.test(String(attribute.key).trim());
+      const existingLabelHasFilePrefix = /^file\b/i.test(String(existing.key).trim());
+      if (newLabelHasFilePrefix && !existingLabelHasFilePrefix) {
+        target.properties[duplicateIndex] = property;
+      }
+      return;
+    }
+  }
+
+  const signature = `${attribute.key}::${attribute.value}`;
+  if (target.signatures.has(signature)) return;
+  target.signatures.add(signature);
+  target.properties.push(property);
 }
 
 function quantityFromVariantTitle(variantTitle) {
@@ -112,6 +249,9 @@ function cleanSizes(value) {
 
 export function buildOrderSummary(order) {
   const lines = order?.lineItems?.nodes || [];
+  const previewLineIndexes = new Set(
+    lines.map((line, index) => isPrintPreviewLine(line) ? index : -1).filter((index) => index >= 0),
+  );
   const products = lines.map((line) => {
     const manualProduct = parseManualProductTitle(line.title || line.name);
     const product = {
@@ -135,6 +275,7 @@ export function buildOrderSummary(order) {
   const general = {properties: [], signatures: new Set()};
 
   lines.forEach((line, index) => {
+    if (previewLineIndexes.has(index)) return;
     visibleAttributes(line.customAttributes).forEach((attribute) => {
       const owner = findOwner(attribute.key, products) || products[index];
       appendProperty(owner, attribute, owner?.title);
@@ -146,11 +287,22 @@ export function buildOrderSummary(order) {
     const group = line.lineItemGroup;
     if (!group || processedGroups.has(group.id)) return;
     processedGroups.add(group.id);
-    const groupProducts = products.filter((product) => product.groupId === group.id);
+    const groupProducts = products.filter((product, index) => {
+      return product.groupId === group.id && !previewLineIndexes.has(index);
+    });
 
-    visibleAttributes(group.customAttributes).forEach((attribute) => {
-      const owner = findOwner(attribute.key, groupProducts);
+    const groupAttributes = visibleAttributes(group.customAttributes);
+    const orderedAttributes = [
+      ...groupAttributes.filter((attribute) => !isFileAttribute(attribute)),
+      ...groupAttributes.filter(isFileAttribute),
+    ];
+
+    orderedAttributes.forEach((attribute) => {
+      const owner = isFileAttribute(attribute)
+        ? findFileOwner(attribute, groupProducts)
+        : findOwner(attribute.key, groupProducts);
       if (owner) appendProperty(owner, attribute, owner.title);
+      else if (hasProductScopedPrefix(attribute.key)) return;
       else appendProperty(general, attribute, '');
     });
   });
@@ -162,10 +314,36 @@ export function buildOrderSummary(order) {
     if (variantQuantity) product.quantity = variantQuantity.value;
   });
 
+  previewLineIndexes.forEach((index) => {
+    const line = lines[index];
+    const attributes = visibleAttributes(line.customAttributes);
+    const productAttribute = attributes.find(isPreviewProductAttribute);
+    const regularProducts = products.filter((product, productIndex) => !previewLineIndexes.has(productIndex));
+    let owner = findPreviewOwner(productAttribute?.value, regularProducts);
+
+    if (!owner && line.lineItemGroup?.id) {
+      const groupProducts = regularProducts.filter((product) => product.groupId === line.lineItemGroup.id);
+      if (groupProducts.length === 1) owner = groupProducts[0];
+    }
+
+    if (!owner) {
+      owner = products[index];
+      owner.title = productAttribute?.value || 'Prodotto con anteprima di stampa';
+    }
+
+    appendProperty(owner, {key: 'Anteprima di Stampa', value: 'Sì, grazie'}, owner.title);
+    attributes
+      .filter((attribute) => !isPreviewProductAttribute(attribute))
+      .forEach((attribute) => appendProperty(owner, attribute, owner.title));
+  });
+
+  addFileReferences(products);
+
   return {
     orderName: order?.name || 'Ordine',
     products: products.filter((product, index) => {
       const line = lines[index];
+      if (previewLineIndexes.has(index) && normalize(product.title) === 'anteprima di stampa') return false;
       return product.properties.length > 0 || Boolean(parseManualProductTitle(line?.title || line?.name));
     }),
     general: general.properties,
@@ -173,12 +351,14 @@ export function buildOrderSummary(order) {
 }
 
 function exportProperty(property) {
-  return {
+  const exported = {
     key: property.key,
     label: property.label,
     value: property.value,
     type: property.isFile ? 'file' : 'text',
   };
+  if (property.reference) exported.reference = property.reference;
+  return exported;
 }
 
 function exportProduct(product) {

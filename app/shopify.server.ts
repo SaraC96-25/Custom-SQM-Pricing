@@ -16,6 +16,7 @@ const REQUIRED_SCOPES = [
   "write_metaobjects",
   "read_products",
   "write_products",
+  "read_orders",
 ];
 
 const scopes = Array.from(

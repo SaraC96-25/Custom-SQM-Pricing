@@ -1,10 +1,13 @@
 /** @jsxImportSource preact */
 import {render} from 'preact';
+import {useState} from 'preact/hooks';
 import {
   buildOrderExport,
   buildOrderSummary,
   serializeOrderExport,
 } from './order-summary.js';
+
+const PRODUCTS_PER_PAGE = 2;
 
 const ORDER_QUERY = `#graphql
   query OrderPrintSummary($id: ID!) {
@@ -135,37 +138,57 @@ export default async () => {
 
 function PropertyRow({property}) {
   return (
-    <s-stack direction="inline" gap="small-500" alignItems="center" wrap>
-      <s-text type="strong">{property.label}:</s-text>
-      {property.isFile ? (
-        <s-link href={property.value} target="_blank">Apri file</s-link>
-      ) : (
-        <s-text>{property.value}</s-text>
-      )}
+    <s-stack direction="block" gap="small-100">
+      <s-stack direction="inline" gap="small-200" alignItems="center" wrap>
+        <s-text type="strong">{property.label}:</s-text>
+        {property.isFile ? (
+          <s-link href={property.value} target="_blank">Apri file</s-link>
+        ) : (
+          <s-text>{property.value}</s-text>
+        )}
+      </s-stack>
+      {property.isFile && property.reference ? (
+        <s-text color="subdued">Riferito a: {property.reference}</s-text>
+      ) : null}
     </s-stack>
   );
 }
 
-function ProductCard({product}) {
+function ProductCard({product, itemNumber}) {
+  const details = product.properties.filter((property) => !property.isFile);
+  const files = product.properties.filter((property) => property.isFile);
+
   return (
     <s-box padding="small" background="subdued" borderRadius="base">
-      <s-stack direction="block" gap="small-500">
-        <s-stack direction="inline" gap="small-300" alignItems="center" wrap>
-          <s-heading>{product.title}</s-heading>
+      <s-stack direction="block" gap="small-200">
+        <s-stack direction="inline">
+          <s-badge tone="success">Articolo {itemNumber}</s-badge>
+        </s-stack>
+        <s-stack direction="inline" gap="small-200" alignItems="center" wrap>
+          <s-text type="strong">{product.title}</s-text>
           <s-badge tone="info">Quantità {product.quantity}</s-badge>
         </s-stack>
-        <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small-500 small-200">
+        <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small-200 small-100">
           {product.sku ? (
             <s-grid-item>
               <PropertyRow property={{label: 'SKU', value: product.sku, isFile: false}} />
             </s-grid-item>
           ) : null}
-          {product.properties.map((property) => (
+          {details.map((property) => (
             <s-grid-item key={`${property.key}-${property.value}`}>
               <PropertyRow property={property} />
             </s-grid-item>
           ))}
         </s-grid>
+        {files.length ? (
+          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small-200 small-100">
+            {files.map((property) => (
+              <s-grid-item key={`${property.key}-${property.value}`}>
+                <PropertyRow property={property} />
+              </s-grid-item>
+            ))}
+          </s-grid>
+        ) : null}
       </s-stack>
     </s-box>
   );
@@ -185,28 +208,58 @@ function downloadData(order, format) {
 }
 
 function Extension({order, summary}) {
+  const [page, setPage] = useState(0);
   const fileCount = summary.products.reduce(
     (total, product) => total + product.properties.filter((property) => property.isFile).length,
     0,
   );
   const jsonDownload = downloadData(order, 'json');
   const xmlDownload = downloadData(order, 'xml');
+  const pageCount = Math.max(1, Math.ceil(summary.products.length / PRODUCTS_PER_PAGE));
+  const pageStart = page * PRODUCTS_PER_PAGE;
+  const visibleProducts = summary.products.slice(pageStart, pageStart + PRODUCTS_PER_PAGE);
+  const isLastPage = page === pageCount - 1;
 
   return (
     <s-admin-block
       heading="Riepilogo produzione e file"
       collapsedSummary={`${summary.products.length} prodotti · ${fileCount} file`}
     >
-      <s-stack direction="block" gap="small-300">
-        {summary.products.length ? summary.products.map((product) => (
-          <ProductCard key={product.id} product={product} />
+      <s-stack direction="block" gap="small-200">
+        {pageCount > 1 ? (
+          <s-stack direction="inline" gap="small-200" alignItems="center" wrap>
+            <s-text color="subdued">
+              Articoli {pageStart + 1}–{Math.min(pageStart + PRODUCTS_PER_PAGE, summary.products.length)} di {summary.products.length}
+            </s-text>
+            <s-button
+              variant="secondary"
+              disabled={page === 0}
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+            >
+              Precedenti
+            </s-button>
+            <s-button
+              variant="secondary"
+              disabled={isLastPage}
+              onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+            >
+              Successivi
+            </s-button>
+          </s-stack>
+        ) : null}
+        {summary.products.length ? visibleProducts.map((product, index) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+            itemNumber={pageStart + index + 1}
+          />
         )) : (
           <s-text color="subdued">Nessuna proprietà personalizzata trovata in questo ordine.</s-text>
         )}
-        {summary.general.length ? (
+        {isLastPage && summary.general.length ? (
           <>
             <s-divider />
-            <s-stack direction="block" gap="small-500">
+            <s-stack direction="block" gap="small-200">
               <s-heading>Informazioni generali del bundle</s-heading>
               {summary.general.map((property) => (
                 <PropertyRow key={`${property.key}-${property.value}`} property={property} />
@@ -216,6 +269,12 @@ function Extension({order, summary}) {
         ) : null}
         <s-divider />
         <s-stack direction="inline" gap="small-300" wrap>
+          <s-button
+            href="extension:stampa-ordine-produzione/admin.order-details.print-action.render"
+            variant="primary"
+          >
+            Stampa ordine
+          </s-button>
           <s-button
             href={jsonDownload.href}
             download={jsonDownload.filename}
