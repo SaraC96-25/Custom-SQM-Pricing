@@ -21,5 +21,8 @@ export async function action({request}) {
     },
   });
 
-  return cors(Response.json({url: `/print/order?document=${encodeURIComponent(id)}`}));
+  const printableUrl = new URL("/print/order", request.url);
+  printableUrl.searchParams.set("document", id);
+
+  return cors(Response.json({url: printableUrl.toString()}));
 }
