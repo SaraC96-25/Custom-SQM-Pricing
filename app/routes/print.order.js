@@ -1,4 +1,5 @@
 import {authenticate} from "../shopify.server";
+import prisma from "../db.server";
 import {buildOrderSummary} from "../../extensions/order-print-summary/src/order-summary.js";
 
 const ORDER_QUERY = `#graphql
@@ -35,8 +36,19 @@ const ORDER_QUERY = `#graphql
 `;
 
 export async function loader({request}) {
-  const {admin, cors} = await authenticate.admin(request);
   const url = new URL(request.url);
+  const documentId = url.searchParams.get("document");
+  if (documentId) {
+    const document = await prisma.printDocument.findUnique({where: {id: documentId}});
+    if (!document || document.expiresAt < new Date()) {
+      return new Response("Documento scaduto. Riapri la stampa dall’ordine.", {status: 410});
+    }
+    return new Response(renderOrderHtml(document.payload, url.searchParams.get("timeline") !== "0"), {
+      headers: {"Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*"},
+    });
+  }
+
+  const {admin, cors} = await authenticate.admin(request);
   const orderId = url.searchParams.get("orderId");
   if (!orderId) return cors(new Response("Ordine non specificato.", {status: 400}));
 

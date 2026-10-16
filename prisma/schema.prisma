@@ -33,3 +33,12 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model PrintDocument {
+  id        String   @id
+  payload   Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
