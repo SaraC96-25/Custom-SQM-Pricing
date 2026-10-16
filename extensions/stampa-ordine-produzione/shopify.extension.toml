@@ -11,6 +11,9 @@ uid = "9470883a-0011-5b12-4923-9ba94773fbb94b7d54db"
 module = "./src/PrintActionExtension.jsx"
 target = "admin.order-details.print-action.render"
 
+[extensions.capabilities]
+network_access = true
+
 # Valid extension targets:
 
 # - admin.order-details.print-action.render
