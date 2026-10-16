@@ -47,26 +47,19 @@ function Extension() {
     let active = true;
 
     (async () => {
-      const [token, orderResponse] = await Promise.all([
-        shopify.auth.idToken(),
-        fetch('shopify:admin/api/graphql.json', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({query: ORDER_QUERY, variables: {id: orderId}}),
-        }),
-      ]);
+      const orderResponse = await fetch('shopify:admin/api/graphql.json', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: ORDER_QUERY, variables: {id: orderId}}),
+      });
       const orderPayload = await orderResponse.json();
-      if (!token) throw new Error('Sessione Shopify non disponibile.');
       if (orderPayload.errors?.length || !orderPayload.data?.order) {
         throw new Error(orderPayload.errors?.[0]?.message || 'Ordine non disponibile.');
       }
 
       const documentResponse = await fetch(`${APP_URL}/api/print-document`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(orderPayload.data.order),
       });
       const documentPayload = await documentResponse.json();
