@@ -44,7 +44,11 @@ export async function loader({request}) {
       return new Response("Documento scaduto. Riapri la stampa dall’ordine.", {status: 410});
     }
     try {
-      return htmlResponse(renderOrderHtml(document.payload, url.searchParams.get("timeline") !== "0"));
+      return htmlResponse(renderOrderHtml(
+        document.payload,
+        url.searchParams.get("timeline") !== "0",
+        url.searchParams.get("print") === "1",
+      ));
     } catch (error) {
       console.error("Unable to render print document", error);
       return htmlResponse(renderPrintError(document.payload?.name), 500);
@@ -61,7 +65,11 @@ export async function loader({request}) {
     return cors(new Response("Impossibile caricare l’ordine.", {status: 404}));
   }
 
-  return cors(new Response(renderOrderHtml(payload.data.order, url.searchParams.get("timeline") !== "0"), {
+  return cors(new Response(renderOrderHtml(
+    payload.data.order,
+    url.searchParams.get("timeline") !== "0",
+    url.searchParams.get("print") === "1",
+  ), {
     headers: {"Content-Type": "text/html; charset=utf-8"},
   }));
 }
@@ -119,7 +127,7 @@ function statusLabel(value, type) {
   return labels[value] || (type === "fulfillment" ? "Inevaso" : value || "Stato non disponibile");
 }
 
-function renderOrderHtml(order, includeTimeline = true) {
+function renderOrderHtml(order, includeTimeline = true, autoPrint = false) {
   const summary = buildOrderSummary(order);
   const summaryById = new Map(summary.products.map((product) => [product.id, product]));
   const lines = order.lineItems?.nodes || [];
@@ -164,6 +172,7 @@ function renderOrderHtml(order, includeTimeline = true) {
       <section><h3>Indirizzo di spedizione</h3>${addressHtml(order.shippingAddress)}</section>
       <section><h3>Indirizzo di fatturazione</h3>${addressHtml(order.billingAddress)}</section>
     </aside></main>
+    ${autoPrint ? `<script>window.addEventListener("load",function(){window.setTimeout(function(){window.print()},250)})</script>` : ""}
   </body></html>`;
 }
 

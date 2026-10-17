@@ -77,7 +77,7 @@ function Extension() {
   }, [orderId]);
 
   const printUrl = documentUrl
-    ? `${documentUrl}&timeline=${includeTimeline ? '1' : '0'}`
+    ? `${documentUrl}&timeline=${includeTimeline ? '1' : '0'}&print=1`
     : undefined;
 
   return (
@@ -104,7 +104,7 @@ function Extension() {
         target="_blank"
         disabled={!documentUrl}
       >
-        Apri pagina di stampa
+        Stampa ordine
       </s-button>
     </s-admin-action>
   );
