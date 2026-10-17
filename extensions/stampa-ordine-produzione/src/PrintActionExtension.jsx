@@ -97,15 +97,16 @@ function Extension() {
           label="Includi timeline"
         />
         {!orderId || error ? <s-banner tone="critical">{error || 'Ordine non disponibile.'}</s-banner> : null}
-        <s-button
-          variant="primary"
-          href={printUrl}
-          target="_blank"
-          disabled={!documentUrl}
-        >
-          Apri pagina di stampa
-        </s-button>
       </s-stack>
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        href={printUrl}
+        target="_blank"
+        disabled={!documentUrl}
+      >
+        Apri pagina di stampa
+      </s-button>
     </s-admin-action>
   );
 }
