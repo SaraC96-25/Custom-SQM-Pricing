@@ -43,9 +43,12 @@ export async function loader({request}) {
     if (!document || document.expiresAt < new Date()) {
       return new Response("Documento scaduto. Riapri la stampa dall’ordine.", {status: 410});
     }
-    return new Response(renderOrderHtml(document.payload, url.searchParams.get("timeline") !== "0"), {
-      headers: {"Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*"},
-    });
+    try {
+      return htmlResponse(renderOrderHtml(document.payload, url.searchParams.get("timeline") !== "0"));
+    } catch (error) {
+      console.error("Unable to render print document", error);
+      return htmlResponse(renderPrintError(document.payload?.name), 500);
+    }
   }
 
   const {admin, cors} = await authenticate.admin(request);
@@ -61,6 +64,25 @@ export async function loader({request}) {
   return cors(new Response(renderOrderHtml(payload.data.order, url.searchParams.get("timeline") !== "0"), {
     headers: {"Content-Type": "text/html; charset=utf-8"},
   }));
+}
+
+function htmlResponse(html, status = 200) {
+  return new Response(html, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
+function renderPrintError(orderName) {
+  return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Stampa ordine</title></head>
+    <body style="font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;color:#202223">
+      <h1 style="font-size:20px">${escapeHtml(orderName || "Ordine")}</h1>
+      <p>Non è stato possibile formattare questo ordine. Chiudi la finestra e riprova.</p>
+    </body></html>`;
 }
 
 const escapeHtml = (value) => String(value ?? "")

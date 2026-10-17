@@ -66,7 +66,10 @@ function Extension() {
       if (!documentResponse.ok || !documentPayload.url) {
         throw new Error(documentPayload.error || 'Impossibile preparare il documento.');
       }
-      if (active) setDocumentUrl(documentPayload.url);
+      const printableUrl = new URL(documentPayload.url, APP_URL);
+      printableUrl.protocol = 'https:';
+      printableUrl.host = new URL(APP_URL).host;
+      if (active) setDocumentUrl(printableUrl.toString());
     })().catch((loadError) => {
       if (active) setError(loadError?.message || 'Impossibile preparare la stampa.');
     });

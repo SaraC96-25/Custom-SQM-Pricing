@@ -44,7 +44,8 @@ export async function action({request}) {
     },
   });
 
-  const printableUrl = new URL("/print/order", request.url);
+  const printableUrl = new URL("/print/order", process.env.SHOPIFY_APP_URL || request.url);
+  printableUrl.protocol = "https:";
   printableUrl.searchParams.set("document", id);
 
   return cors(withCorsHeaders(Response.json({url: printableUrl.toString()})));
