@@ -9,16 +9,15 @@ export default async () => {
 function Extension() {
   const orderId = shopify.data.selected?.[0]?.id;
   const [includeTimeline, setIncludeTimeline] = useState(true);
-  const src = orderId
+  const printUrl = orderId
     ? `/print/order?orderId=${encodeURIComponent(orderId)}&timeline=${includeTimeline ? '1' : '0'}`
     : undefined;
 
   return (
-    <s-admin-print-action src={src}>
+    <s-admin-action heading="Stampa ordine di produzione">
       <s-stack direction="block" gap="base">
-        <s-text type="strong">Stampa ordine di produzione</s-text>
         <s-text color="subdued">
-          Il documento include il riepilogo semplificato degli articoli e i dati dell’ordine Shopify.
+          Apri il documento formattato in una nuova scheda e stampalo direttamente dal browser.
         </s-text>
         <s-checkbox
           name="include-timeline"
@@ -29,7 +28,15 @@ function Extension() {
           label="Includi timeline"
         />
         {!orderId ? <s-banner tone="critical">Ordine non disponibile.</s-banner> : null}
+        <s-button
+          variant="primary"
+          href={printUrl}
+          target="_blank"
+          disabled={!orderId}
+        >
+          Apri pagina di stampa
+        </s-button>
       </s-stack>
-    </s-admin-print-action>
+    </s-admin-action>
   );
 }
