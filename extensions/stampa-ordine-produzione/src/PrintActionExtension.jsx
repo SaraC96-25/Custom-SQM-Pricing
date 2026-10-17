@@ -67,9 +67,7 @@ function Extension() {
         throw new Error(documentPayload.error || 'Impossibile preparare il documento.');
       }
       const printableUrl = new URL(documentPayload.url, APP_URL);
-      printableUrl.protocol = 'https:';
-      printableUrl.host = new URL(APP_URL).host;
-      if (active) setDocumentUrl(printableUrl.toString());
+      if (active) setDocumentUrl(`${printableUrl.pathname}${printableUrl.search}`);
     })().catch((loadError) => {
       if (active) setError(loadError?.message || 'Impossibile preparare la stampa.');
     });
