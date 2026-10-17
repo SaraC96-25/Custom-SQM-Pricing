@@ -16,7 +16,6 @@ const ORDER_QUERY = `#graphql
       netPaymentSet { shopMoney { amount currencyCode } }
       billingAddress { firstName lastName company address1 address2 city province zip country phone }
       shippingAddress { firstName lastName company address1 address2 city province zip country phone }
-      customer { displayName email phone }
       shippingLines(first: 20) { nodes { title code originalPriceSet { shopMoney { amount currencyCode } } } }
       events(first: 40, reverse: true) { nodes { id createdAt message } }
       lineItems(first: 250) {
