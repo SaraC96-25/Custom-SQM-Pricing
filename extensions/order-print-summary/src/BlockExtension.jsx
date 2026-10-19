@@ -103,6 +103,9 @@ const ORDER_QUERY = `#graphql
 `;
 
 export default async () => {
+  // Wake the app server early so "Stampa ordine" is ready when clicked.
+  fetch('/api/print-document').catch(() => {});
+
   try {
     const orderId = shopify.data.selected?.[0]?.id;
     if (!orderId) throw new Error('Ordine non disponibile.');
