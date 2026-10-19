@@ -9,3 +9,6 @@ type = "ui_extension"
 [[extensions.targeting]]
 module = "./src/BlockExtension.jsx"
 target = "admin.order-details.block.render"
+
+[extensions.capabilities]
+network_access = true
