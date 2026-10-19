@@ -21,7 +21,7 @@ const ORDER_QUERY = `#graphql
       lineItems(first: 250) {
         nodes {
           id title name quantity variantTitle sku
-          image { url altText }
+          image { url(transform: {maxWidth: 160, maxHeight: 160}) altText }
           originalUnitPriceSet { shopMoney { amount currencyCode } }
           originalTotalSet { shopMoney { amount currencyCode } }
           discountedUnitPriceSet { shopMoney { amount currencyCode } }
