@@ -20,7 +20,12 @@ export async function loader({request}) {
     return new Response(null, {status: 204, headers: CORS_HEADERS});
   }
 
-  return new Response(null, {status: 405, headers: CORS_HEADERS});
+  // Lightweight warm-up: the order block pings this when the order page opens,
+  // so the server (Render free plan sleeps when idle) is awake before "Stampa ordine".
+  return new Response(null, {
+    status: 204,
+    headers: {...CORS_HEADERS, "Cache-Control": "no-store"},
+  });
 }
 
 export async function action({request}) {
@@ -35,7 +40,10 @@ export async function action({request}) {
   }
 
   const id = randomUUID();
-  await prisma.printDocument.deleteMany({where: {expiresAt: {lt: new Date()}}});
+  // Cleanup of expired documents runs in background instead of delaying the response.
+  prisma.printDocument.deleteMany({where: {expiresAt: {lt: new Date()}}}).catch((error) => {
+    console.error("Unable to clean expired print documents", error);
+  });
   await prisma.printDocument.create({
     data: {
       id,
