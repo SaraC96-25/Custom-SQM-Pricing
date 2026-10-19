@@ -247,6 +247,28 @@ function cleanSizes(value) {
     .join('; ');
 }
 
+// SKU that depend on a product option rather than on the Shopify variant.
+// Add a row here for other products with the same need.
+const OPTION_SKU_RULES = [
+  {
+    product: 'berretti invernali',
+    option: 'forma toppa',
+    skus: {circolare: 'B446', rettangolare: 'B445'},
+  },
+];
+
+function applyOptionSku(product) {
+  const title = normalize(product.title);
+  OPTION_SKU_RULES.forEach((rule) => {
+    if (!title.includes(rule.product)) return;
+    const option = product.properties.find((property) => {
+      return !property.isFile && normalize(property.label) === rule.option;
+    });
+    const sku = option && rule.skus[normalize(option.value)];
+    if (sku) product.sku = sku;
+  });
+}
+
 export function buildOrderSummary(order) {
   const lines = order?.lineItems?.nodes || [];
   const previewLineIndexes = new Set(
@@ -313,6 +335,8 @@ export function buildOrderSummary(order) {
     });
     if (variantQuantity) product.quantity = variantQuantity.value;
   });
+
+  products.forEach(applyOptionSku);
 
   previewLineIndexes.forEach((index) => {
     const line = lines[index];
