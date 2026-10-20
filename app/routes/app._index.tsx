@@ -61,6 +61,7 @@ type ProductSummary = {
   status: string;
   enabled: boolean;
   minimumAreaM2: number;
+  fixedPiecePrice: number;
   minWidthCm: number;
   minHeightCm: number;
   defaultWidthCm: number;
@@ -248,6 +249,9 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           minimumAreaMetafield: metafield(namespace: "custom", key: "sqm_minimum_area_m2") {
+            value
+          }
+          fixedPiecePriceMetafield: metafield(namespace: "custom", key: "sqm_fixed_piece_price") {
             value
           }
           minWidthMetafield: metafield(namespace: "custom", key: "sqm_min_width_cm") {
@@ -529,6 +533,7 @@ function mapProduct(product: any): ProductSummary {
     status: product.status,
     enabled: product.enabledMetafield?.value === "true",
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
+    fixedPiecePrice: Math.max(0, toNumber(product.fixedPiecePriceMetafield?.value) ?? 0),
     minWidthCm: Math.max(0, toNumber(product.minWidthMetafield?.value) ?? 1),
     minHeightCm: Math.max(0, toNumber(product.minHeightMetafield?.value) ?? 1),
     defaultWidthCm: Math.max(
@@ -671,6 +676,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       0,
       toNumber(String(formData.get("sourceMinimumAreaM2") ?? "0")) ?? 0,
     );
+    const fixedPiecePrice = Math.max(
+      0,
+      toNumber(String(formData.get("sourceFixedPiecePrice") ?? "0")) ?? 0,
+    );
     const minWidthCm = Math.max(
       0,
       toNumber(String(formData.get("sourceMinWidthCm") ?? "1")) ?? 1,
@@ -737,6 +746,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             key: "sqm_minimum_area_m2",
             type: "number_decimal",
             value: minimumAreaM2.toFixed(3),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_fixed_piece_price",
+            type: "number_decimal",
+            value: fixedPiecePrice.toFixed(2),
           },
           {
             ownerId: targetProductId,
@@ -835,6 +851,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     0,
     toNumber(String(formData.get("minimumAreaM2") ?? "0")) ?? 0,
   );
+  const fixedPiecePrice = Math.max(
+    0,
+    toNumber(String(formData.get("fixedPiecePrice") ?? "0")) ?? 0,
+  );
   const minWidthCm = Math.max(
     0,
     toNumber(String(formData.get("minWidthCm") ?? "1")) ?? 1,
@@ -907,6 +927,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_minimum_area_m2",
           type: "number_decimal",
           value: minimumAreaM2.toFixed(3),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_fixed_piece_price",
+          type: "number_decimal",
+          value: fixedPiecePrice.toFixed(2),
         },
         {
           ownerId: productId,
@@ -1014,6 +1041,9 @@ export default function Index() {
   const [minimumAreaM2, setMinimumAreaM2] = useState(
     selectedProduct?.minimumAreaM2 ?? 0,
   );
+  const [fixedPiecePrice, setFixedPiecePrice] = useState(
+    selectedProduct?.fixedPiecePrice ?? 0,
+  );
   const [minWidthCm, setMinWidthCm] = useState(selectedProduct?.minWidthCm ?? 1);
   const [minHeightCm, setMinHeightCm] = useState(selectedProduct?.minHeightCm ?? 1);
   const [defaultWidthCm, setDefaultWidthCm] = useState(
@@ -1094,6 +1124,7 @@ export default function Index() {
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
+    setFixedPiecePrice(selectedProduct?.fixedPiecePrice ?? 0);
     setMinWidthCm(selectedProduct?.minWidthCm ?? 1);
     setMinHeightCm(selectedProduct?.minHeightCm ?? 1);
     setDefaultWidthCm(selectedProduct?.defaultWidthCm ?? DEFAULT_SQM_DIMENSION_CM);
@@ -1648,6 +1679,11 @@ export default function Index() {
                   value={String(selectedProduct.minimumAreaM2)}
                 />
                 <input
+                  name="sourceFixedPiecePrice"
+                  type="hidden"
+                  value={String(selectedProduct.fixedPiecePrice)}
+                />
+                <input
                   name="sourceMinWidthCm"
                   type="hidden"
                   value={String(selectedProduct.minWidthCm)}
@@ -1753,6 +1789,11 @@ export default function Index() {
                   name="minimumAreaM2"
                   type="hidden"
                   value={String(minimumAreaM2)}
+                />
+                <input
+                  name="fixedPiecePrice"
+                  type="hidden"
+                  value={String(fixedPiecePrice)}
                 />
                 <input name="minWidthCm" type="hidden" value={String(minWidthCm)} />
                 <input name="minHeightCm" type="hidden" value={String(minHeightCm)} />
@@ -2604,6 +2645,39 @@ export default function Index() {
                     className={`sqm-tab-panel ${activeTab === "calculation" ? "is-active" : ""}`}
                     hidden={activeTab !== "calculation"}
                   >
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Prezzo fisso a pezzo</h2>
+                        <p>
+                          Se compilato, ogni pezzo costa questa cifra qualsiasi misura
+                          venga scelta: il calcolo a mq, i range e il minimo di stampa
+                          vengono ignorati. Totale = prezzo fisso × quantità + eventuali
+                          opzioni a pagamento. Lascia 0 per usare il calcolo a mq.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-minimum-box">
+                      <label className="sqm-field">
+                        <span>Prezzo fisso a pezzo (€)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setFixedPiecePrice(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="0"
+                          step="0.01"
+                          type="number"
+                          value={fixedPiecePrice}
+                        />
+                      </label>
+                    </div>
+
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Minimo di stampa</h2>
