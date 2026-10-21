@@ -358,3 +358,15 @@ test('serializes valid JSON and escapes reserved XML characters', () => {
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
   assert.match(xml, /Stampa &lt;urgente&gt; &amp; controllo/);
 });
+
+test('sets Berretti Invernali SKU from Forma Toppa', () => {
+  const make = (forma) => buildOrderSummary({
+    lineItems: {nodes: [{
+      id: 'b', title: 'Berretti Invernali', variantTitle: '10 / Patch Fronte', quantity: 1, sku: '',
+      customAttributes: [{key: 'Forma Toppa', value: forma}, {key: 'Pezzi_1', value: '10 x Taglia Unica Nero'}],
+    }]},
+  }).products[0].sku;
+  assert.equal(make('Circolare'), 'B446');
+  assert.equal(make('Rettangolare'), 'B445');
+  assert.equal(make('Ovale'), '');
+});
