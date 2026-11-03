@@ -95,6 +95,8 @@ export const SQM_ICON_THICKNESS_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_spessore.svg?v=1780912458";
 export const SQM_ICON_PRINT_POSITION_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_posizione_stampa.svg?v=1780912458";
+export const SQM_ICON_MATERIAL_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_materiale.svg";
 export const SQM_ICON_QUANTITY_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_quantita.svg?v=1780912458";
 
@@ -103,6 +105,7 @@ export const SQM_ICON_OPTIONS = [
   { label: "Dimensione", value: SQM_ICON_DIMENSION_URL },
   { label: "Spessore", value: SQM_ICON_THICKNESS_URL },
   { label: "Posizione stampa", value: SQM_ICON_PRINT_POSITION_URL },
+  { label: "Materiale", value: SQM_ICON_MATERIAL_URL },
   { label: "Quantità", value: SQM_ICON_QUANTITY_URL },
 ] as const;
 
