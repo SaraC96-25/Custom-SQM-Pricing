@@ -32,6 +32,7 @@ import {
   stringifyProductConfig,
   validateOptionGroup,
   validateProductConfig,
+  type OptionAvailabilityRule,
   type OptionGroupType,
   type PriceModifierType,
   type SqmOption,
@@ -1578,6 +1579,76 @@ export default function Index() {
     setProductConfigJson(stringifyProductConfig(parsed));
   };
 
+  const [ruleDraft, setRuleDraft] = useState<OptionAvailabilityRule>({
+    id: "",
+    when: { groupId: "", values: [] },
+    disable: { groupId: "", values: [] },
+  });
+
+  useEffect(() => {
+    setRuleDraft({
+      id: "",
+      when: { groupId: "", values: [] },
+      disable: { groupId: "", values: [] },
+    });
+  }, [selectedProduct]);
+
+  const resetRuleDraft = () =>
+    setRuleDraft({
+      id: "",
+      when: { groupId: "", values: [] },
+      disable: { groupId: "", values: [] },
+    });
+
+  const toggleRuleDraftValue = (side: "when" | "disable", value: string) => {
+    setRuleDraft((current) => {
+      const values = current[side].values.includes(value)
+        ? current[side].values.filter((item) => item !== value)
+        : [...current[side].values, value];
+      return { ...current, [side]: { ...current[side], values } };
+    });
+  };
+
+  const setRuleDraftGroup = (side: "when" | "disable", groupId: string) => {
+    setRuleDraft((current) => ({ ...current, [side]: { groupId, values: [] } }));
+  };
+
+  const ruleDraftComplete =
+    Boolean(ruleDraft.when.groupId) &&
+    Boolean(ruleDraft.disable.groupId) &&
+    ruleDraft.when.groupId !== ruleDraft.disable.groupId &&
+    ruleDraft.when.values.length > 0 &&
+    ruleDraft.disable.values.length > 0;
+
+  const addOptionRule = () => {
+    if (!ruleDraftComplete) return;
+    updateProductConfig((current) => {
+      const existingIds = new Set(current.optionRules.map((rule) => rule.id));
+      let index = current.optionRules.length + 1;
+      while (existingIds.has(`rule_${index}`)) index += 1;
+      return {
+        ...current,
+        optionRules: [...current.optionRules, { ...ruleDraft, id: `rule_${index}` }],
+      };
+    });
+    resetRuleDraft();
+  };
+
+  const removeOptionRule = (index: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionRules: current.optionRules.filter((_, ruleIndex) => ruleIndex !== index),
+    }));
+  };
+
+  const describeRuleValues = (groupId: string, values: string[]) => {
+    const group = productConfig.optionGroups.find((item) => item.id === groupId);
+    const labels = values.map(
+      (value) => group?.options.find((option) => option.value === value)?.label ?? value,
+    );
+    return { group: group?.label ?? groupId, values: labels.join(", ") };
+  };
+
   const updatePackagingField = (
     field: "enabled" | "costPerSqm" | "maxPanelSizeCm" | "minimumCost",
     value: string | boolean,
@@ -2606,6 +2677,117 @@ export default function Index() {
                       </p>
                     ) : null}
 
+                    {productConfig.optionGroups.length >= 2 ? (
+                      <section className="sqm-option-rules">
+                        <div className="sqm-section-heading sqm-section-heading--spaced">
+                          <div>
+                            <h2>Combinazioni non disponibili</h2>
+                            <p>
+                              Disabilita alcuni valori quando il cliente sceglie una certa
+                              opzione. Es. se Materiale e Opalino, Spessore 3 mm non e
+                              selezionabile (se era selezionato si passa al primo valore
+                              disponibile).
+                            </p>
+                          </div>
+                        </div>
+
+                        {productConfig.optionRules.length ? (
+                          <ul className="sqm-option-rules__list">
+                            {productConfig.optionRules.map((rule, ruleIndex) => {
+                              const when = describeRuleValues(rule.when.groupId, rule.when.values);
+                              const disable = describeRuleValues(
+                                rule.disable.groupId,
+                                rule.disable.values,
+                              );
+                              return (
+                                <li key={rule.id}>
+                                  <span>
+                                    Se <strong>{when.group}</strong> e{" "}
+                                    <strong>{when.values}</strong> → disabilita{" "}
+                                    <strong>{disable.group}</strong>:{" "}
+                                    <strong>{disable.values}</strong>
+                                  </span>
+                                  <button
+                                    className="sqm-button sqm-button--small sqm-button--danger"
+                                    onClick={() => removeOptionRule(ruleIndex)}
+                                    type="button"
+                                  >
+                                    Elimina
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          <p className="sqm-empty">Nessuna regola: tutte le combinazioni sono disponibili.</p>
+                        )}
+
+                        <div className="sqm-promo-box sqm-option-rules__form">
+                          {(["when", "disable"] as const).map((side) => {
+                            const group = productConfig.optionGroups.find(
+                              (item) => item.id === ruleDraft[side].groupId,
+                            );
+                            return (
+                              <div className="sqm-option-rules__side" key={side}>
+                                <label className="sqm-field">
+                                  <span>
+                                    {side === "when"
+                                      ? "Se il cliente sceglie in"
+                                      : "Disabilita in"}
+                                  </span>
+                                  <select
+                                    onChange={(event) =>
+                                      setRuleDraftGroup(side, event.currentTarget.value)
+                                    }
+                                    value={ruleDraft[side].groupId}
+                                  >
+                                    <option value="">Seleziona un gruppo...</option>
+                                    {productConfig.optionGroups
+                                      .filter(
+                                        (item) =>
+                                          side === "when" ||
+                                          item.id !== ruleDraft.when.groupId,
+                                      )
+                                      .map((item) => (
+                                        <option key={item.id} value={item.id}>
+                                          {item.label}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                                {group ? (
+                                  <div className="sqm-option-rules__values">
+                                    {group.options.map((option) => (
+                                      <label className="sqm-toggle" key={option.value}>
+                                        <input
+                                          checked={ruleDraft[side].values.includes(option.value)}
+                                          onChange={() =>
+                                            toggleRuleDraftValue(side, option.value)
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span>{option.label}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          <div>
+                            <button
+                              className="sqm-button sqm-button--small"
+                              disabled={!ruleDraftComplete}
+                              onClick={addOptionRule}
+                              type="button"
+                            >
+                              Aggiungi regola
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    ) : null}
+
                     <details className="sqm-advanced-json">
                       <summary>Editor JSON avanzato</summary>
                       <label className="sqm-field sqm-json-editor">
@@ -3384,6 +3566,38 @@ const styles = `
     border-color: var(--sqm-green);
     transform: translateY(-1px);
     box-shadow: 0 14px 28px rgba(8, 146, 37, 0.1);
+  }
+
+  .sqm-option-rules__list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    margin: 12px 0;
+    padding: 0;
+  }
+
+  .sqm-option-rules__list li {
+    align-items: center;
+    border: 1px solid var(--sqm-line);
+    border-radius: 10px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .sqm-option-rules__form {
+    display: grid;
+    gap: 14px;
+    margin-top: 12px;
+  }
+
+  .sqm-option-rules__values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 8px;
   }
 
   .sqm-toggle {
