@@ -69,10 +69,23 @@ export type SqmPackagingConfig = {
   minimumCost: number;
 };
 
+/**
+ * Regola di disponibilita tra opzioni: quando nel gruppo `when.groupId` e
+ * selezionato uno dei valori `when.values`, i valori `disable.values` del
+ * gruppo `disable.groupId` diventano non selezionabili.
+ * Es. Materiale = Opalino -> disabilita Spessore 3 mm.
+ */
+export type OptionAvailabilityRule = {
+  id: string;
+  when: { groupId: string; values: string[] };
+  disable: { groupId: string; values: string[] };
+};
+
 export type SqmProductConfig = {
   enableSqmCalculator: boolean;
   optionGroups: SqmOptionGroup[];
   conditionalFees: ConditionalFee[];
+  optionRules: OptionAvailabilityRule[];
   packaging: SqmPackagingConfig;
 };
 
@@ -82,6 +95,8 @@ export const SQM_ICON_THICKNESS_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_spessore.svg?v=1780912458";
 export const SQM_ICON_PRINT_POSITION_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_posizione_stampa.svg?v=1780912458";
+export const SQM_ICON_MATERIAL_URL =
+  "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_materiale.svg";
 export const SQM_ICON_QUANTITY_URL =
   "https://cdn.shopify.com/s/files/1/0555/0601/0321/files/icona_quantita.svg?v=1780912458";
 
@@ -90,6 +105,7 @@ export const SQM_ICON_OPTIONS = [
   { label: "Dimensione", value: SQM_ICON_DIMENSION_URL },
   { label: "Spessore", value: SQM_ICON_THICKNESS_URL },
   { label: "Posizione stampa", value: SQM_ICON_PRINT_POSITION_URL },
+  { label: "Materiale", value: SQM_ICON_MATERIAL_URL },
   { label: "Quantità", value: SQM_ICON_QUANTITY_URL },
 ] as const;
 
@@ -121,6 +137,7 @@ export const EMPTY_PRODUCT_CONFIG: SqmProductConfig = {
   enableSqmCalculator: true,
   optionGroups: [],
   conditionalFees: [],
+  optionRules: [],
   packaging: {
     enabled: false,
     costPerSqm: 0,
@@ -282,20 +299,102 @@ export function createEmptyOptionGroup(
 export function parseProductConfig(value: unknown): SqmProductConfig {
   const source = parseJsonObject(value) as Record<string, unknown>;
 
+  const optionGroups = Array.isArray(source.optionGroups)
+    ? source.optionGroups
+        .map((group, index) => normalizeOptionGroup(group, index))
+        .filter((group): group is SqmOptionGroup => Boolean(group))
+    : [];
+
   return {
     enableSqmCalculator: source.enableSqmCalculator !== false,
-    optionGroups: Array.isArray(source.optionGroups)
-      ? source.optionGroups
-          .map((group, index) => normalizeOptionGroup(group, index))
-          .filter((group): group is SqmOptionGroup => Boolean(group))
-      : [],
+    optionGroups,
     conditionalFees: Array.isArray(source.conditionalFees)
       ? source.conditionalFees
           .map((fee) => normalizeConditionalFee(fee))
           .filter((fee): fee is ConditionalFee => Boolean(fee))
       : [],
+    optionRules: Array.isArray(source.optionRules)
+      ? source.optionRules
+          .map((rule, index) => normalizeOptionRule(rule, index))
+          .filter((rule): rule is OptionAvailabilityRule => Boolean(rule))
+          .map((rule) => pruneOptionRule(rule, optionGroups))
+          .filter((rule): rule is OptionAvailabilityRule => Boolean(rule))
+      : [],
     packaging: normalizePackagingConfig(source.packaging),
   };
+}
+
+function normalizeValueList(value: unknown) {
+  const list = Array.isArray(value) ? value : value == null ? [] : [value];
+  return [...new Set(list.map((item) => String(item ?? "").trim()).filter(Boolean))];
+}
+
+function normalizeOptionRule(value: unknown, index = 0): OptionAvailabilityRule | null {
+  if (!value || typeof value !== "object") return null;
+
+  const source = value as Record<string, unknown>;
+  const when = (source.when && typeof source.when === "object" ? source.when : {}) as Record<string, unknown>;
+  const disable = (source.disable && typeof source.disable === "object" ? source.disable : {}) as Record<string, unknown>;
+  const whenGroupId = normalizeId(when.groupId);
+  const disableGroupId = normalizeId(disable.groupId);
+  const whenValues = normalizeValueList(when.values);
+  const disableValues = normalizeValueList(disable.values);
+
+  if (!whenGroupId || !disableGroupId || !whenValues.length || !disableValues.length) {
+    return null;
+  }
+
+  return {
+    id: normalizeId(source.id) || `rule_${index + 1}`,
+    when: { groupId: whenGroupId, values: whenValues },
+    disable: { groupId: disableGroupId, values: disableValues },
+  };
+}
+
+// Elimina riferimenti a gruppi/valori rimossi, cosi le regole restano coerenti
+// quando si modifica o cancella un gruppo opzione.
+function pruneOptionRule(
+  rule: OptionAvailabilityRule,
+  groups: SqmOptionGroup[],
+): OptionAvailabilityRule | null {
+  const whenGroup = groups.find((group) => group.id === rule.when.groupId);
+  const disableGroup = groups.find((group) => group.id === rule.disable.groupId);
+  if (!whenGroup || !disableGroup || whenGroup.id === disableGroup.id) return null;
+
+  const has = (group: SqmOptionGroup, value: string) =>
+    group.options.some((option) => option.value === value);
+  const whenValues = rule.when.values.filter((value) => has(whenGroup, value));
+  const disableValues = rule.disable.values.filter((value) => has(disableGroup, value));
+  if (!whenValues.length || !disableValues.length) return null;
+
+  return {
+    ...rule,
+    when: { ...rule.when, values: whenValues },
+    disable: { ...rule.disable, values: disableValues },
+  };
+}
+
+/**
+ * Restituisce, per ogni gruppo, i valori disabilitati dalla selezione corrente.
+ * `selection` mappa groupId -> valore selezionato (o array per i checkbox).
+ */
+export function getDisabledOptionValues(
+  rules: OptionAvailabilityRule[],
+  selection: Record<string, string | string[] | undefined>,
+) {
+  const disabled: Record<string, string[]> = {};
+
+  rules.forEach((rule) => {
+    const selected = selection[rule.when.groupId];
+    const selectedValues = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    if (!selectedValues.some((item) => rule.when.values.includes(item))) return;
+
+    const current = new Set(disabled[rule.disable.groupId] ?? []);
+    rule.disable.values.forEach((item) => current.add(item));
+    disabled[rule.disable.groupId] = [...current];
+  });
+
+  return disabled;
 }
 
 export const parseProductAdvancedConfig = parseProductConfig;
@@ -574,6 +673,16 @@ export function validateProductConfig(value: unknown) {
     }
     if (!fee.condition.rules.length) {
       errors.push(`La commissione automatica "${fee.label || index + 1}" deve avere almeno una regola.`);
+    }
+  });
+
+  config.optionRules.forEach((rule, index) => {
+    const disableGroup = config.optionGroups.find((group) => group.id === rule.disable.groupId);
+    if (disableGroup && disableGroup.type !== "checkbox" &&
+        disableGroup.options.every((option) => rule.disable.values.includes(option.value))) {
+      errors.push(
+        `La regola di disponibilita #${index + 1} disabiliterebbe tutti i valori di "${disableGroup.label}".`,
+      );
     }
   });
 

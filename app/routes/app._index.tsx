@@ -32,6 +32,7 @@ import {
   stringifyProductConfig,
   validateOptionGroup,
   validateProductConfig,
+  type OptionAvailabilityRule,
   type OptionGroupType,
   type PriceModifierType,
   type SqmOption,
@@ -61,6 +62,7 @@ type ProductSummary = {
   status: string;
   enabled: boolean;
   minimumAreaM2: number;
+  fixedPiecePrice: number;
   minWidthCm: number;
   minHeightCm: number;
   defaultWidthCm: number;
@@ -248,6 +250,9 @@ const PRODUCTS_QUERY = `#graphql
             value
           }
           minimumAreaMetafield: metafield(namespace: "custom", key: "sqm_minimum_area_m2") {
+            value
+          }
+          fixedPiecePriceMetafield: metafield(namespace: "custom", key: "sqm_fixed_piece_price") {
             value
           }
           minWidthMetafield: metafield(namespace: "custom", key: "sqm_min_width_cm") {
@@ -529,6 +534,7 @@ function mapProduct(product: any): ProductSummary {
     status: product.status,
     enabled: product.enabledMetafield?.value === "true",
     minimumAreaM2: Math.max(0, toNumber(product.minimumAreaMetafield?.value) ?? 0),
+    fixedPiecePrice: Math.max(0, toNumber(product.fixedPiecePriceMetafield?.value) ?? 0),
     minWidthCm: Math.max(0, toNumber(product.minWidthMetafield?.value) ?? 1),
     minHeightCm: Math.max(0, toNumber(product.minHeightMetafield?.value) ?? 1),
     defaultWidthCm: Math.max(
@@ -671,6 +677,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       0,
       toNumber(String(formData.get("sourceMinimumAreaM2") ?? "0")) ?? 0,
     );
+    const fixedPiecePrice = Math.max(
+      0,
+      toNumber(String(formData.get("sourceFixedPiecePrice") ?? "0")) ?? 0,
+    );
     const minWidthCm = Math.max(
       0,
       toNumber(String(formData.get("sourceMinWidthCm") ?? "1")) ?? 1,
@@ -737,6 +747,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             key: "sqm_minimum_area_m2",
             type: "number_decimal",
             value: minimumAreaM2.toFixed(3),
+          },
+          {
+            ownerId: targetProductId,
+            namespace: "custom",
+            key: "sqm_fixed_piece_price",
+            type: "number_decimal",
+            value: fixedPiecePrice.toFixed(2),
           },
           {
             ownerId: targetProductId,
@@ -835,6 +852,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     0,
     toNumber(String(formData.get("minimumAreaM2") ?? "0")) ?? 0,
   );
+  const fixedPiecePrice = Math.max(
+    0,
+    toNumber(String(formData.get("fixedPiecePrice") ?? "0")) ?? 0,
+  );
   const minWidthCm = Math.max(
     0,
     toNumber(String(formData.get("minWidthCm") ?? "1")) ?? 1,
@@ -907,6 +928,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           key: "sqm_minimum_area_m2",
           type: "number_decimal",
           value: minimumAreaM2.toFixed(3),
+        },
+        {
+          ownerId: productId,
+          namespace: "custom",
+          key: "sqm_fixed_piece_price",
+          type: "number_decimal",
+          value: fixedPiecePrice.toFixed(2),
         },
         {
           ownerId: productId,
@@ -1014,6 +1042,9 @@ export default function Index() {
   const [minimumAreaM2, setMinimumAreaM2] = useState(
     selectedProduct?.minimumAreaM2 ?? 0,
   );
+  const [fixedPiecePrice, setFixedPiecePrice] = useState(
+    selectedProduct?.fixedPiecePrice ?? 0,
+  );
   const [minWidthCm, setMinWidthCm] = useState(selectedProduct?.minWidthCm ?? 1);
   const [minHeightCm, setMinHeightCm] = useState(selectedProduct?.minHeightCm ?? 1);
   const [defaultWidthCm, setDefaultWidthCm] = useState(
@@ -1094,6 +1125,7 @@ export default function Index() {
   useEffect(() => {
     setEnabled(selectedProduct?.enabled ?? false);
     setMinimumAreaM2(selectedProduct?.minimumAreaM2 ?? 0);
+    setFixedPiecePrice(selectedProduct?.fixedPiecePrice ?? 0);
     setMinWidthCm(selectedProduct?.minWidthCm ?? 1);
     setMinHeightCm(selectedProduct?.minHeightCm ?? 1);
     setDefaultWidthCm(selectedProduct?.defaultWidthCm ?? DEFAULT_SQM_DIMENSION_CM);
@@ -1547,6 +1579,76 @@ export default function Index() {
     setProductConfigJson(stringifyProductConfig(parsed));
   };
 
+  const [ruleDraft, setRuleDraft] = useState<OptionAvailabilityRule>({
+    id: "",
+    when: { groupId: "", values: [] },
+    disable: { groupId: "", values: [] },
+  });
+
+  useEffect(() => {
+    setRuleDraft({
+      id: "",
+      when: { groupId: "", values: [] },
+      disable: { groupId: "", values: [] },
+    });
+  }, [selectedProduct]);
+
+  const resetRuleDraft = () =>
+    setRuleDraft({
+      id: "",
+      when: { groupId: "", values: [] },
+      disable: { groupId: "", values: [] },
+    });
+
+  const toggleRuleDraftValue = (side: "when" | "disable", value: string) => {
+    setRuleDraft((current) => {
+      const values = current[side].values.includes(value)
+        ? current[side].values.filter((item) => item !== value)
+        : [...current[side].values, value];
+      return { ...current, [side]: { ...current[side], values } };
+    });
+  };
+
+  const setRuleDraftGroup = (side: "when" | "disable", groupId: string) => {
+    setRuleDraft((current) => ({ ...current, [side]: { groupId, values: [] } }));
+  };
+
+  const ruleDraftComplete =
+    Boolean(ruleDraft.when.groupId) &&
+    Boolean(ruleDraft.disable.groupId) &&
+    ruleDraft.when.groupId !== ruleDraft.disable.groupId &&
+    ruleDraft.when.values.length > 0 &&
+    ruleDraft.disable.values.length > 0;
+
+  const addOptionRule = () => {
+    if (!ruleDraftComplete) return;
+    updateProductConfig((current) => {
+      const existingIds = new Set(current.optionRules.map((rule) => rule.id));
+      let index = current.optionRules.length + 1;
+      while (existingIds.has(`rule_${index}`)) index += 1;
+      return {
+        ...current,
+        optionRules: [...current.optionRules, { ...ruleDraft, id: `rule_${index}` }],
+      };
+    });
+    resetRuleDraft();
+  };
+
+  const removeOptionRule = (index: number) => {
+    updateProductConfig((current) => ({
+      ...current,
+      optionRules: current.optionRules.filter((_, ruleIndex) => ruleIndex !== index),
+    }));
+  };
+
+  const describeRuleValues = (groupId: string, values: string[]) => {
+    const group = productConfig.optionGroups.find((item) => item.id === groupId);
+    const labels = values.map(
+      (value) => group?.options.find((option) => option.value === value)?.label ?? value,
+    );
+    return { group: group?.label ?? groupId, values: labels.join(", ") };
+  };
+
   const updatePackagingField = (
     field: "enabled" | "costPerSqm" | "maxPanelSizeCm" | "minimumCost",
     value: string | boolean,
@@ -1646,6 +1748,11 @@ export default function Index() {
                   name="sourceMinimumAreaM2"
                   type="hidden"
                   value={String(selectedProduct.minimumAreaM2)}
+                />
+                <input
+                  name="sourceFixedPiecePrice"
+                  type="hidden"
+                  value={String(selectedProduct.fixedPiecePrice)}
                 />
                 <input
                   name="sourceMinWidthCm"
@@ -1753,6 +1860,11 @@ export default function Index() {
                   name="minimumAreaM2"
                   type="hidden"
                   value={String(minimumAreaM2)}
+                />
+                <input
+                  name="fixedPiecePrice"
+                  type="hidden"
+                  value={String(fixedPiecePrice)}
                 />
                 <input name="minWidthCm" type="hidden" value={String(minWidthCm)} />
                 <input name="minHeightCm" type="hidden" value={String(minHeightCm)} />
@@ -2565,6 +2677,117 @@ export default function Index() {
                       </p>
                     ) : null}
 
+                    {productConfig.optionGroups.length >= 2 ? (
+                      <section className="sqm-option-rules">
+                        <div className="sqm-section-heading sqm-section-heading--spaced">
+                          <div>
+                            <h2>Combinazioni non disponibili</h2>
+                            <p>
+                              Disabilita alcuni valori quando il cliente sceglie una certa
+                              opzione. Es. se Materiale e Opalino, Spessore 3 mm non e
+                              selezionabile (se era selezionato si passa al primo valore
+                              disponibile).
+                            </p>
+                          </div>
+                        </div>
+
+                        {productConfig.optionRules.length ? (
+                          <ul className="sqm-option-rules__list">
+                            {productConfig.optionRules.map((rule, ruleIndex) => {
+                              const when = describeRuleValues(rule.when.groupId, rule.when.values);
+                              const disable = describeRuleValues(
+                                rule.disable.groupId,
+                                rule.disable.values,
+                              );
+                              return (
+                                <li key={rule.id}>
+                                  <span>
+                                    Se <strong>{when.group}</strong> e{" "}
+                                    <strong>{when.values}</strong> → disabilita{" "}
+                                    <strong>{disable.group}</strong>:{" "}
+                                    <strong>{disable.values}</strong>
+                                  </span>
+                                  <button
+                                    className="sqm-button sqm-button--small sqm-button--danger"
+                                    onClick={() => removeOptionRule(ruleIndex)}
+                                    type="button"
+                                  >
+                                    Elimina
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          <p className="sqm-empty">Nessuna regola: tutte le combinazioni sono disponibili.</p>
+                        )}
+
+                        <div className="sqm-promo-box sqm-option-rules__form">
+                          {(["when", "disable"] as const).map((side) => {
+                            const group = productConfig.optionGroups.find(
+                              (item) => item.id === ruleDraft[side].groupId,
+                            );
+                            return (
+                              <div className="sqm-option-rules__side" key={side}>
+                                <label className="sqm-field">
+                                  <span>
+                                    {side === "when"
+                                      ? "Se il cliente sceglie in"
+                                      : "Disabilita in"}
+                                  </span>
+                                  <select
+                                    onChange={(event) =>
+                                      setRuleDraftGroup(side, event.currentTarget.value)
+                                    }
+                                    value={ruleDraft[side].groupId}
+                                  >
+                                    <option value="">Seleziona un gruppo...</option>
+                                    {productConfig.optionGroups
+                                      .filter(
+                                        (item) =>
+                                          side === "when" ||
+                                          item.id !== ruleDraft.when.groupId,
+                                      )
+                                      .map((item) => (
+                                        <option key={item.id} value={item.id}>
+                                          {item.label}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                                {group ? (
+                                  <div className="sqm-option-rules__values">
+                                    {group.options.map((option) => (
+                                      <label className="sqm-toggle" key={option.value}>
+                                        <input
+                                          checked={ruleDraft[side].values.includes(option.value)}
+                                          onChange={() =>
+                                            toggleRuleDraftValue(side, option.value)
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span>{option.label}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          <div>
+                            <button
+                              className="sqm-button sqm-button--small"
+                              disabled={!ruleDraftComplete}
+                              onClick={addOptionRule}
+                              type="button"
+                            >
+                              Aggiungi regola
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    ) : null}
+
                     <details className="sqm-advanced-json">
                       <summary>Editor JSON avanzato</summary>
                       <label className="sqm-field sqm-json-editor">
@@ -2604,6 +2827,39 @@ export default function Index() {
                     className={`sqm-tab-panel ${activeTab === "calculation" ? "is-active" : ""}`}
                     hidden={activeTab !== "calculation"}
                   >
+                    <div className="sqm-section-heading">
+                      <div>
+                        <h2>Prezzo fisso a pezzo</h2>
+                        <p>
+                          Se compilato, ogni pezzo costa questa cifra qualsiasi misura
+                          venga scelta: il calcolo a mq, i range e il minimo di stampa
+                          vengono ignorati. Totale = prezzo fisso × quantità + eventuali
+                          opzioni a pagamento. Lascia 0 per usare il calcolo a mq.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sqm-minimum-box">
+                      <label className="sqm-field">
+                        <span>Prezzo fisso a pezzo (€)</span>
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setFixedPiecePrice(
+                              Math.max(
+                                0,
+                                toNumber(event.target.value) ?? 0,
+                              ),
+                            )
+                          }
+                          placeholder="0"
+                          step="0.01"
+                          type="number"
+                          value={fixedPiecePrice}
+                        />
+                      </label>
+                    </div>
+
                     <div className="sqm-section-heading">
                       <div>
                         <h2>Minimo di stampa</h2>
@@ -3310,6 +3566,38 @@ const styles = `
     border-color: var(--sqm-green);
     transform: translateY(-1px);
     box-shadow: 0 14px 28px rgba(8, 146, 37, 0.1);
+  }
+
+  .sqm-option-rules__list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    margin: 12px 0;
+    padding: 0;
+  }
+
+  .sqm-option-rules__list li {
+    align-items: center;
+    border: 1px solid var(--sqm-line);
+    border-radius: 10px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .sqm-option-rules__form {
+    display: grid;
+    gap: 14px;
+    margin-top: 12px;
+  }
+
+  .sqm-option-rules__values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 8px;
   }
 
   .sqm-toggle {
