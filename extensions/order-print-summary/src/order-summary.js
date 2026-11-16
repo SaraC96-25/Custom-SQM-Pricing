@@ -68,6 +68,8 @@ function meaningfulTokens(value) {
 function findFileOwner(attribute, products) {
   const titleOwner = findOwner(attribute.key, products);
   if (titleOwner) return titleOwner;
+  // Bundle con un solo prodotto: i file del bundle appartengono a quel prodotto.
+  if (products.length === 1) return products[0];
 
   const normalizedKey = normalize(attribute.key);
   const keyTokens = new Set(meaningfulTokens(attribute.key));
@@ -82,7 +84,13 @@ function findFileOwner(attribute, products) {
       const label = normalize(property.label);
       const value = normalize(property.value);
       if (label.startsWith('grafica') && normalizedKey.includes(label)) score += 8;
-      if (label === 'posizione stampa' && value && normalizedKey.includes(value)) score += 5;
+      if (label === 'posizione stampa' && value) {
+        // "Lato Cuore + Retro" deve riconoscere sia "File Lato Cuore_1" sia "File Retro_1".
+        const positions = String(property.value || '').split('+').map(normalize).filter(Boolean);
+        if (normalizedKey.includes(value) || positions.some((position) => normalizedKey.includes(position))) {
+          score += 5;
+        }
+      }
     });
 
     return {product, score};
