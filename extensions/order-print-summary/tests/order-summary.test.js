@@ -358,3 +358,54 @@ test('serializes valid JSON and escapes reserved XML characters', () => {
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
   assert.match(xml, /Stampa &lt;urgente&gt; &amp; controllo/);
 });
+
+test('assigns bundle files to the only product in the bundle (#WW117476)', () => {
+  const group = {
+    id: 'gid://shopify/LineItemGroup/117476',
+    customAttributes: [
+      {key: 'T-shirt Economy UNISEX · Posizione stampa', value: 'Lato Cuore + Retro'},
+      {key: 'T-shirt Economy UNISEX · Pezzi 1', value: '3 x M Black'},
+      {key: 'Istruzioni per la Stampa', value: 'Lato cuore scritta, dietro completo'},
+      {key: 'File Lato Cuore_1', value: 'https://upload.cloudlift.app/s/wowstampa/cuore.pdf'},
+      {key: 'File Retro_1', value: 'https://upload.cloudlift.app/s/wowstampa/retro.pdf'},
+    ],
+  };
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {id: 'banner', title: 'Striscioni FORMATI PROMO', variantTitle: '1 / 150x100 cm', quantity: 1, customAttributes: [
+          {key: 'File Fronte_1', value: 'https://upload.cloudlift.app/banner.pdf'},
+        ]},
+        {id: 'tshirt', title: 'T-shirt Economy UNISEX', variantTitle: '20 / Lato Cuore + Retro', quantity: 1, sku: 'GL3000', customAttributes: [], lineItemGroup: group},
+      ],
+    },
+  });
+
+  const tshirt = summary.products.find((product) => product.title === 'T-shirt Economy UNISEX');
+  const files = tshirt.properties.filter((property) => property.isFile).map((property) => property.label);
+  assert.deepEqual(files, ['File Lato Cuore 1', 'File Retro 1']);
+  assert.deepEqual(summary.general.map((property) => property.label), ['Istruzioni per la Stampa']);
+});
+
+test('matches bundle files to a product with a combined print position', () => {
+  const group = {
+    id: 'gid://shopify/LineItemGroup/2',
+    customAttributes: [
+      {key: 'T-shirt Economy UNISEX · Posizione stampa', value: 'Lato Cuore + Retro'},
+      {key: 'Berretti Invernali · Posizione stampa', value: 'Fronte'},
+      {key: 'File Retro_1', value: 'https://upload.cloudlift.app/retro.pdf'},
+    ],
+  };
+  const summary = buildOrderSummary({
+    lineItems: {
+      nodes: [
+        {id: 'tshirt', title: 'T-shirt Economy UNISEX', quantity: 10, customAttributes: [], lineItemGroup: group},
+        {id: 'berretti', title: 'Berretti Invernali', quantity: 10, customAttributes: [], lineItemGroup: group},
+      ],
+    },
+  });
+
+  const tshirt = summary.products.find((product) => product.title === 'T-shirt Economy UNISEX');
+  assert.ok(tshirt.properties.some((property) => property.isFile && property.label === 'File Retro 1'));
+  assert.equal(summary.general.length, 0);
+});
